@@ -1,0 +1,20 @@
+main: main.o transport.o ini.o message.o client.o
+	gcc -Wall -pthread -g -o our-smtp-proxy main.o transport.o ini.o message.o client.o
+
+main.o: main.c
+	gcc -Wall -c main.c
+
+transport.o: transport.h transport.c
+	gcc -Wall -c transport.c
+
+ini.o: ini.h ini.c
+	gcc -Wall -c ini.c
+
+message.o: message.h message.c
+	gcc -Wall -c message.c
+
+client.o: client.h client.c
+	gcc -Wall -c client.c
+
+clean:
+	rm *.o our-smtp-proxy
