@@ -49,7 +49,7 @@ void abortClients()
         cl = cl->next;
     }
 
-    int i = 1;
+    int i = 0;
     while (clList) {
         sleep(1);
         sp_msg(LOG_INFO, "aborting ... (%d)\n", ++i);
