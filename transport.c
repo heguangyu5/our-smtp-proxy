@@ -6,7 +6,6 @@
 
 extern char *tpIni;
 extern tp_t *tpList;
-extern int daemonized;
 
 tp_t *findTpByName(const char *name)
 {
@@ -98,9 +97,9 @@ static int checkTpList()
         REQUIRED(tp->host)
         REQUIRED(tp->port)
         REQUIRED(tp->ssl)
-        REQUIRED(tp->auth);
-        REQUIRED(tp->username);
-        REQUIRED(tp->password);
+        REQUIRED(tp->auth)
+        REQUIRED(tp->username)
+        REQUIRED(tp->password)
         if (strcmp(tp->ssl, "") != 0 && strcmp(tp->ssl, "SSL") != 0) {
             sp_msg(LOG_ERR, "unsupported tp->ssl: %s\n", tp->ssl);
             return 0;
