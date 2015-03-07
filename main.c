@@ -17,12 +17,20 @@
 #define BIND_PORT "9925"
 #define BACKLOG   5
 
+/**
+ * tpIni在程序启动时就已经确定下来,之后也不会改变
+ * tpList是读取tpIni得到的,除非reload tpIni,否则也不会改变
+ */
 char *tpIni;
-int daemonized;
-
 tp_t *tpList;
+
+/**
+ * clList这个双向链表会随着client的连接和断开而添加和删除节点
+ * 对其的操作应该有一个mutex保证
+ */
 cl_t *clList;
 
+int daemonized;
 int quit;
 
 static int setup()
