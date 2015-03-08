@@ -6,7 +6,8 @@ typedef struct rcpt {
     struct rcpt *next;
 } rcpt_t;
 
-rcpt_t *newTo(rcpt_t *toList, char *email);
+rcpt_t *newTo(rcpt_t **toList, char *email);
 void freeToList(rcpt_t *toList);
+void printToList(rcpt_t *toList);
 
 #endif
