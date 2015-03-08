@@ -1,6 +1,7 @@
 #include "client.h"
 #include "message.h"
 #include "rcpt.h"
+#include "transport.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -77,7 +78,7 @@ void abortClients()
     }
 }
 
-static int prepareSendMail(char *msg, char *from, rcpt_t *toList, char *data, char *err, size_t errlen)
+static int prepareSendMail(char *msg, char **from, rcpt_t **toList, char **data, char *err, size_t errlen)
 {
     // msg format:
     // from\r\n
@@ -88,15 +89,15 @@ static int prepareSendMail(char *msg, char *from, rcpt_t *toList, char *data, ch
     // .\r\n
 
     // data
-    data = strstr(msg, "\r\nDATA\r\n");
-    if (data == NULL) {
+    *data = strstr(msg, "\r\nDATA\r\n");
+    if (*data == NULL) {
         snprintf(err, errlen, "500 syntax error - invalid msg format\r\n");
         return 0;
     }
-    memset(data, 0, 8);
-    data += 8;
+    memset(*data, 0, 8);
+    *data += 8;
     // from
-    from = msg;
+    *from = msg;
     // toList
     char *to;
     to = strstr(msg, "\r\n");
@@ -107,19 +108,41 @@ static int prepareSendMail(char *msg, char *from, rcpt_t *toList, char *data, ch
     do {
         memset(to, 0, 2);
         to += 2;
-        newTo(&toList, to);
+        newTo(toList, to);
     } while ((to = strstr(to, "\r\n")) != NULL);
 
     return 1;
 }
 
-void *handleClient(void *arg)
+static void sendMail(char *msg, char *res, size_t reslen)
 {
-    cl_t *cl = (cl_t *)arg;
-
     char *from     = NULL;
     rcpt_t *toList = NULL;
     char *data     = NULL;
+    tp_t *tp;
+
+    if (!prepareSendMail(msg, &from, &toList, &data, res, reslen)) {
+        return;
+    }
+
+    tp = findTpByName(from);
+    if (tp == NULL) {
+        freeToList(toList);
+        snprintf(res, reslen, "500 transport not found - invalid transport %s", from);
+        return;
+    }
+
+    if (!tpSendMail(tp, toList, data, res, reslen)) {
+        freeToList(toList);
+        return;
+    }
+
+    freeToList(toList);
+}
+
+void *handleClient(void *arg)
+{
+    cl_t *cl = (cl_t *)arg;
 
     struct pollfd fds[1];
     fds[0].fd      = cl->fd;
@@ -129,8 +152,6 @@ void *handleClient(void *arg)
     int r, n;
     char *buf, *ptr;
     size_t blksize, buflen, ptrlen, msglen;
-    char err[1024];
-    size_t errlen = 1024;
 
     blksize = 2048;
     buf     = calloc(1, blksize);
@@ -138,6 +159,9 @@ void *handleClient(void *arg)
     buflen  = blksize;
     ptrlen  = blksize;
     msglen  = 0;
+
+    char res[1024];
+    size_t reslen = 1024;
 
     pthread_detach(pthread_self());
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
@@ -168,21 +192,16 @@ void *handleClient(void *arg)
                     buf[buflen] = '\0';
                 }
                 // send email
-                if (!prepareSendMail(buf, from, toList, data, err, errlen)) {
-                    if (write(cl->fd, err, errlen) == -1) {
-                        char error[1024];
-                        strerror_r(errno, error, 1024);
-                        sp_msg(LOG_ERR, "write err msg to client error: %s\n", error);
-                        free(buf);
-                        break;
-                    }
+                memset(res, 0, reslen);
+                sendMail(buf, res, reslen);
+                if (write(cl->fd, res, strlen(res)) == -1) {
+                    char error[1024];
+                    strerror_r(errno, error, 1024);
+                    sp_msg(LOG_ERR, "write err msg '%s' to client error: %s\n", res, error);
+                    free(buf);
+                    break;
                 }
-
-                freeToList(toList);
                 free(buf);
-                from   = NULL;
-                toList = NULL;
-                data   = NULL;
 
                 pthread_cleanup_push(freeCl, cl);
                 pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);

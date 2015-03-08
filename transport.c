@@ -171,3 +171,10 @@ int loadTpConfig()
 
     return tpCount;
 }
+
+int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
+{
+    printf("tpSendMail: =%s=\n", data);
+    snprintf(res, reslen, "250 Mail OK\r\n");
+    return 0;
+}

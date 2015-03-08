@@ -4,6 +4,9 @@
 #define TP_FREE 1
 #define TP_BUSY 2
 
+#include "rcpt.h"
+#include <stddef.h>
+
 typedef struct tpConn {
     int sockfd;
     int status;
@@ -34,5 +37,6 @@ typedef struct tp {
 tp_t *findTpByName(const char *name);
 int loadTpConfig();
 void freeTpList();
+int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *err, size_t errlen);
 
 #endif

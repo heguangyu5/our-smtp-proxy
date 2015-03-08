@@ -1,23 +1,29 @@
 <?php
 
-function sendMail() {
+function sendMail($pid) {
     $fp = stream_socket_client("tcp://127.0.0.1:9925", $errno, $errstr, 30);
     if (!$fp) {
         echo "$errstr ($errno)\n";
         exit;
     }
 
-    for ($i = 1; $i < 3; $i++) {
-        fwrite($fp, "$i: 123456789");
-        fwrite($fp, "123456789");
-        fwrite($fp, "123456789");
-        fwrite($fp, "123456789");
-        fwrite($fp, "123456789");
+    $i = 1;
+    while ($i < 10) {
+        fwrite($fp, "tpa@126.com\r\n");
+        fwrite($fp, "a@b.com\r\n");
+        fwrite($fp, "b@b.com\r\n");
+        fwrite($fp, "c@b.com\r\n");
+        fwrite($fp, "DATA\r\n");
+        fwrite($fp, "$pid($i): 123456789123456789123456789123456789123456789\r\n");
         fwrite($fp, ".\r\n");
+        //sleep(mt_rand(1, 5));
+        echo $pid . "($i): " . fgets($fp);
+        $i++;
     }
-
-    sleep(mt_rand(5, 10));
 }
+
+//sendMail(posix_getpid());
+//exit;
 
 $children = array();
 
@@ -26,7 +32,8 @@ for ($i = 0; $i < 10; $i++) {
     if ($pid > 0) {
         $children[] = $pid;
     } else if ($pid == 0) {
-        sendMail();
+        $pid = posix_getpid();
+        sendMail($pid);
         exit;
     }
 }
