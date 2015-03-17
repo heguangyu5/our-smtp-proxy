@@ -1,8 +1,10 @@
 #include "transport.h"
 #include "ini.h"
 #include "message.h"
+#include "smtp.h"
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 extern char *tpIni;
 extern tp_t *tpList;
@@ -27,6 +29,7 @@ static tp_t *newTp(const char *name)
     tp_t *tp = tpList;
 
     newTp->name = strdup(name);
+    pthread_mutex_init(&newTp->mtx, NULL);
 
     if (tpList == NULL) {
         tpList = newTp;
@@ -82,6 +85,7 @@ void freeTpList()
         SAFE_FREE(tp->auth);
         SAFE_FREE(tp->username);
         SAFE_FREE(tp->password);
+        pthread_mutex_destroy(&tp->mtx);
         tpList = tpList->next;
         free(tp);
     }
@@ -172,9 +176,158 @@ int loadTpConfig()
     return tpCount;
 }
 
+#define LOCK_TP(tp) pthread_mutex_lock(&tp->mtx);
+#define UNLOCK_TP(tp) pthread_mutex_unlock(&tp->mtx);
+
+#define LOCK_TP_CONN(conn) pthread_mutex_lock(&conn->mtx);
+#define UNLOCK_TP_CONN(conn) pthread_mutex_unlock(&conn->mtx);
+
+static void endConn(tpConn_t *conn)
+{
+    tp_t *tp = conn->tp;
+    // remove from tp conn list first
+    LOCK_TP(conn->tp)
+    if (conn == tp->conn) { // head
+        tp->conn = conn->next;
+    } else if (conn->next == NULL) { // tail
+        conn->prev->next = NULL;
+    } else {
+        conn->prev->next = conn->next;
+        conn->next->prev = conn->prev;
+    }
+    UNLOCK_TP(conn->tp)
+    // end it
+    UNLOCK_TP_CONN(conn)
+    pthread_mutex_destroy(&conn->mtx);
+    close(conn->sockfd);
+    free(conn);
+}
+
+static void *connNOOP(void *arg)
+{
+    pthread_detach(pthread_self());
+    tpConn_t *conn = (tpConn_t *)arg;
+
+    while (1) {
+        LOCK_TP_CONN(conn)
+        conn->noopCount++;
+        if (!smtpNOOP(conn->sockfd) || conn->noopCount == conn->tp->maxNoop) {
+            pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+            endConn(conn);
+            pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+            pthread_exit(NULL);
+        }
+        UNLOCK_TP_CONN(conn)
+        sleep(2);
+    }
+}
+
+static tpConn_t *newConn(tp_t *tp, char *err, size_t errlen)
+{
+    int sockfd;
+    tpConn_t *newConn;
+    tpConn_t *conn;
+
+    sockfd = tcpConnect(tp->host, tp->port);
+    if (sockfd == -1){
+        snprintf(err, errlen, "500 cannot connect to smtp server\r\n");
+        return NULL;
+    }
+
+    if (smtpEHLO(sockfd, err, errlen)
+        && smtpAuth(sockfd, tp->auth, tp->username, tp->password, err, errlen)
+    ) {
+        newConn = calloc(1, sizeof(tpConn_t));
+        newConn->tp     = tp;
+        newConn->sockfd = sockfd;
+        pthread_mutex_init(&newConn->mtx, NULL);
+        LOCK_TP_CONN(newConn)
+        pthread_create(&newConn->tid, NULL, &connNOOP, newConn);
+        conn = tp->conn;
+        while (conn->next) {
+            conn = conn->next;
+        }
+        conn->next    = newConn;
+        newConn->prev = conn;
+        return conn;
+    }
+
+    close(sockfd);
+    return NULL;
+}
+
+static tpConn_t *getAFreeConn(tp_t *tp, int *isNewConn, char *err, size_t errlen)
+{
+    tpConn_t *conn;
+    int maxLoop = 300; // timeout = 300 * 0.3s = 90s
+
+    while (maxLoop--) {
+        LOCK_TP(tp)
+        conn = tp->conn;
+        while (conn) {
+            if (pthread_mutex_trylock(&conn->mtx) == 0) {
+                UNLOCK_TP(tp)
+                return conn;
+            }
+            conn = conn->next;
+        }
+        // free conn not found
+        if (tp->connCount < tp->maxConn) {
+            conn = newConn(tp, err, errlen);
+            *isNewConn = 1;
+            UNLOCK_TP(tp)
+            return conn;
+        }
+        // later try again
+        UNLOCK_TP(tp)
+        usleep(300000); // 300ms = 0.3s
+    }
+
+    sp_msg(LOG_ERR, "cannot find an idle connection\n");
+    snprintf(err, errlen, "500 cannot find an idle connection\r\n");
+
+    return NULL;
+}
+
 int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
 {
-    printf("tpSendMail: =%s=\n", data);
-    snprintf(res, reslen, "250 Mail OK\r\n");
+    int isNewConn = 0;
+    tpConn_t *conn = getAFreeConn(tp, &isNewConn, res, reslen);
+    if (conn == NULL) {
+        return 0;
+    }
+
+    conn->noopCount = 0;
+    if ((!isNewConn && smtpRSET(conn->sockfd, res, reslen))
+        && smtpMAILFROM(conn->sockfd, tp->name, res, reslen)
+        && smtpRCPTTO(conn->sockfd, toList, res, reslen)
+        && smtpDATA(conn->sockfd, data, res, reslen)
+    ) {
+        conn->sendCount++;
+        if (conn->sendCount == tp->maxSendPerConn) {
+            pthread_cancel(conn->tid);
+            endConn(conn);
+            return 1;
+        }
+        if (tp->sleepSecondsPerSend) {
+            sleep(tp->sleepSecondsPerSend);
+        }
+        UNLOCK_TP_CONN(conn)
+        return 1;
+    }
+
+    pthread_cancel(conn->tid);
+    endConn(conn);
     return 0;
+}
+
+void abortTpConns()
+{
+    tp_t *tp = tpList;
+    while (tp) {
+        while (tp->conn) {
+            endConn(tp->conn);
+        }
+        tp = tp->next;
+    }
 }

@@ -1,16 +1,19 @@
 #ifndef __TRANSPORT_H
 #define __TRANSPORT_H
 
-#define TP_FREE 1
-#define TP_BUSY 2
-
 #include "rcpt.h"
 #include <stddef.h>
+#include <pthread.h>
 
 typedef struct tpConn {
     int sockfd;
-    int status;
+    int sendCount;
     int noopCount;
+    struct tpConn *next;
+    struct tpConn *prev;
+    pthread_mutex_t mtx;
+    pthread_t tid;
+    struct tp *tp;
 } tpConn_t;
 
 typedef struct tp {
@@ -22,6 +25,8 @@ typedef struct tp {
     char *auth;
     char *username;
     char *password;
+
+    pthread_mutex_t mtx;
 
     tpConn_t *conn;
     int connCount;
@@ -38,5 +43,6 @@ tp_t *findTpByName(const char *name);
 int loadTpConfig();
 void freeTpList();
 int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *err, size_t errlen);
+void abortTpConns();
 
 #endif

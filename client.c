@@ -128,7 +128,7 @@ static void sendMail(char *msg, char *res, size_t reslen)
     tp = findTpByName(from);
     if (tp == NULL) {
         freeToList(toList);
-        snprintf(res, reslen, "500 transport not found - invalid transport %s", from);
+        snprintf(res, reslen, "500 transport not found - invalid transport %s\r\n", from);
         return;
     }
 

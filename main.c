@@ -123,6 +123,7 @@ static void mainLoop(int sockfd)
     // cleanup
     sp_msg(LOG_INFO, "\ncleaning up\n");
     abortClients();
+    abortTpConns();
     freeTpList();
 }
 
