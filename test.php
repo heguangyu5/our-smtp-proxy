@@ -8,11 +8,10 @@ function sendMail($pid) {
     }
 
     $i = 1;
-    while ($i < 10) {
-        fwrite($fp, "tpa@126.com\r\n");
-        fwrite($fp, "a@b.com\r\n");
-        fwrite($fp, "b@b.com\r\n");
-        fwrite($fp, "c@b.com\r\n");
+    while ($i < 2) {
+        fwrite($fp, "employee001@126.com\r\n");
+        fwrite($fp, "employee003@126.com\r\n");
+        fwrite($fp, "employee004@126.com\r\n");
         fwrite($fp, "DATA\r\n");
         fwrite($fp, "$pid($i): 123456789123456789123456789123456789123456789\r\n");
         fwrite($fp, ".\r\n");
@@ -22,8 +21,8 @@ function sendMail($pid) {
     }
 }
 
-//sendMail(posix_getpid());
-//exit;
+sendMail(posix_getpid());
+exit;
 
 $children = array();
 

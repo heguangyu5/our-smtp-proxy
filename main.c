@@ -1,5 +1,5 @@
 #include "transport.h"
-#include "message.h"
+#include "log.h"
 #include "client.h"
 
 #include <unistd.h>
@@ -17,21 +17,16 @@
 #define BIND_PORT "9925"
 #define BACKLOG   5
 
-/**
- * tpIni在程序启动时就已经确定下来,之后也不会改变
- * tpList是读取tpIni得到的,除非reload tpIni,否则也不会改变
- */
-char *tpIni;
 tp_t *tpList;
 
-/**
- * clList这个双向链表会随着client的连接和断开而添加和删除节点
- * 对其的操作应该有一个mutex保证
- */
+// clList这个双向链表会随着client的连接和断开而添加和删除节点
+// 对其的操作应该有一个mutex保证
 cl_t *clList;
 
-int daemonized;
 int quit;
+
+// stdout OR LOG_FILE
+FILE *logFile;
 
 static int setup()
 {
@@ -46,18 +41,18 @@ static int setup()
 
     if ((r = getaddrinfo(BIND_IP, BIND_PORT, &hints, &result)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(r));
-        exit(1);
+        exit(2);
     }
 
-    optval = 1;
     for (rp = result; rp != NULL; rp = rp->ai_next) {
         sockfd = socket(AF_INET, SOCK_STREAM, 0);
         if (sockfd == -1) {
             continue;
         }
+        optval = 1;
         if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
-            fprintf(stderr, "setsockopt SO_REUSEADDR error: %s\n", strerror(errno));
-            exit(1);
+            perror("setsockopt");
+            exit(2);
         }
         if (bind(sockfd, rp->ai_addr, rp->ai_addrlen) == 0) {
             break;
@@ -66,15 +61,13 @@ static int setup()
     }
 
     if (rp == NULL) {
-        fprintf(stderr, "setup failed\n");
-        exit(1);
+        fprintf(stderr, "cannot create passive socket on %s:%s\n", BIND_IP, BIND_PORT);
+        exit(2);
     }
 
-    sp_msg(LOG_INFO, "server socket created on %s:%s\n", BIND_IP, BIND_PORT);
-
     if (listen(sockfd, BACKLOG) == -1) {
-        fprintf(stderr, "listen: %s", strerror(errno));
-        exit(1);
+        perror("listen");
+        exit(2);
     }
 
     freeaddrinfo(result);
@@ -88,27 +81,28 @@ static void mainLoop(int sockfd)
     char buf[1024];
     cl_t *cl;
 
-    sp_msg(LOG_INFO, "accepting connections\n");
+    mylog("our-smtp-proxy started\n");
+    mylog("accepting connections\n");
 
     while (!quit) {
         fd = accept(sockfd, NULL, NULL);
         if (fd == -1) {
             switch(errno) {
             case ECONNABORTED:
-                sp_msg(LOG_INFO, "accept: ECONNABORTED");
+                MAIN_THREAD_LOG("accept: ECONNABORTED")
                 break;
             case EMFILE:
-                sp_msg(LOG_ERR, "accept: EMFILE");
+                MAIN_THREAD_LOG("accept: EMFILE")
                 break;
             case ENFILE:
-                sp_msg(LOG_ERR, "accept: ENFILE");
+                MAIN_THREAD_LOG("accept: ENFILE")
                 break;
             case EINTR:
             case EAGAIN:
                 break;
             default:
                 strerror_r(errno, buf, 1024);
-                sp_msg(LOG_ERR, "accept: %s\n", buf);
+                MAIN_THREAD_LOG("accept: %s\n", buf)
                 break;
             }
         }
@@ -121,41 +115,54 @@ static void mainLoop(int sockfd)
     }
 
     // cleanup
-    sp_msg(LOG_INFO, "\ncleaning up\n");
+    mylog("quit\n");
+    mylog("cleaning up\n");
     abortClients();
     abortTpConns();
     freeTpList();
 }
 
-void onQuit(int signo)
+static void onQuit(int signo)
 {
     quit = 1;
 }
 
+/**
+ * Usage: ./our-smtp-proxy [-t] [-D]
+ *        -t 测试transport.ini配置是否正确.
+ *        -D 前台运行,默认是后台运行(daemonize).
+ */
 int main(int argc, char *argv[])
 {
-    int d = 0;
+    int daemonize = 1;
+    int testTp = 0;
+    int listenfd;
     char c;
+
     opterr = 0;
-    while ((c = getopt(argc, argv, "t:d")) != -1) {
+    while ((c = getopt(argc, argv, "tD")) != -1) {
         switch (c) {
         case 't':
-            tpIni = optarg;
+            testTp = 1;
             break;
-        case 'd':
-            d = 1;
+        case 'D':
+            daemonize = 0;
             break;
         }
     }
 
-    if (tpIni == NULL) {
-        fprintf(stderr, "Usage: %s -t transport.ini [-d]\n", argv[0]);
-        exit(1);
+    if (testTp || !daemonize) {
+        logFile = stdout;
+    } else {
+        logFile = fopen(LOG_FILE, "a");
+        if (logFile == NULL) {
+            perror("fopen " LOG_FILE);
+            exit(2);
+        }
     }
 
-    if (!loadTpConfig()) {
-        exit(1);
-    }
+    // exit 1 if failed
+    loadTpConfig(testTp);
 
     signal(SIGINT, onQuit);
     signal(SIGTERM, onQuit);
@@ -163,7 +170,16 @@ int main(int argc, char *argv[])
     siginterrupt(SIGINT, 1);
     siginterrupt(SIGTERM, 1);
 
-    mainLoop(setup());
+    listenfd = setup();
+    if (!daemonize) {
+        mainLoop(listenfd);
+        return 0;
+    }
 
-    return 0;
+    if (daemon(1, 0) == 0) {
+        mainLoop(listenfd);
+        return 0;
+    }
+    perror("daemon");
+    exit(3);
 }

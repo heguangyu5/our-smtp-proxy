@@ -1,6 +1,6 @@
 #include "transport.h"
 #include "ini.h"
-#include "message.h"
+#include "log.h"
 #include "smtp.h"
 #include <stdlib.h>
 #include <string.h>
@@ -64,7 +64,7 @@ static int tpIniHandler(void *user, const char *section, const char *name, const
     else HANDLE_INT_ITEM(sleepSecondsPerSend)
     else HANDLE_INT_ITEM(maxNoop)
     else {
-        sp_msg(LOG_INFO, "unknown item %s = %s\n", name, value);
+        TP_CONFIG_LOG("unknown config item %s = %s\n", name, value)
         return 0;
     }
 
@@ -75,7 +75,7 @@ void freeTpList()
 {
     tp_t *tp;
 
-    sp_msg(LOG_INFO, "free tpList\n");
+    TP_CONFIG_LOG("free tpList\n")
     #define SAFE_FREE(m) if (m) free(m)
     while (tpList) {
         tp = tpList;
@@ -91,44 +91,11 @@ void freeTpList()
     }
 }
 
-static int checkTpList()
-{
-    int tpCount = 0;
-    tp_t *tp = tpList;
-
-    #define REQUIRED(n) if (n == NULL) { sp_msg(LOG_ERR, #n " required\n"); return 0; }
-    while (tp) {
-        REQUIRED(tp->host)
-        REQUIRED(tp->port)
-        REQUIRED(tp->ssl)
-        REQUIRED(tp->auth)
-        REQUIRED(tp->username)
-        REQUIRED(tp->password)
-        if (strcmp(tp->ssl, "") != 0 && strcmp(tp->ssl, "SSL") != 0) {
-            sp_msg(LOG_ERR, "unsupported tp->ssl: %s\n", tp->ssl);
-            return 0;
-        }
-        if (strcmp(tp->auth, "LOGIN") != 0) {
-            sp_msg(LOG_ERR, "unsupported tp->auth: %s\n", tp->auth);
-            return 0;
-        }
-        if (tp->maxConn < 1) {
-            sp_msg(LOG_ERR, "tp->maxConn at least 1\n");
-            return 0;
-        }
-        tp = tp->next;
-        tpCount++;
-    }
-
-    return tpCount;
-}
-
 static void printTpList()
 {
     tp_t *tp = tpList;
     while (tp) {
-        sp_msg(LOG_INFO,
-"\n[%s]\n"
+        mylog("\n[%s]\n"
 "host                = %s\n"
 "port                = %s\n"
 "ssl                 = %s\n"
@@ -156,24 +123,60 @@ static void printTpList()
     }
 }
 
-int loadTpConfig()
+static void checkTpList(int testTp)
 {
-    sp_msg(LOG_INFO, "load transport config file: %s\n", tpIni);
-    if (ini_parse(tpIni, tpIniHandler, NULL) < 0) {
-        freeTpList();
-        return 0;
+    int tpCount = 0;
+    tp_t *tp = tpList;
+
+    #define REQUIRED(n) if (n == NULL) { TP_CONFIG_LOG(#n " required\n") exit(1); }
+    while (tp) {
+        REQUIRED(tp->host)
+        REQUIRED(tp->port)
+        REQUIRED(tp->ssl)
+        REQUIRED(tp->auth)
+        REQUIRED(tp->username)
+        REQUIRED(tp->password)
+        if (strcmp(tp->ssl, "") != 0 && strcmp(tp->ssl, "SSL") != 0) {
+            TP_CONFIG_LOG("unsupported ssl value: %s\n", tp->ssl)
+            exit(1);
+        }
+        if (strcmp(tp->auth, "LOGIN") != 0) {
+            TP_CONFIG_LOG("unsupported auth method: %s\n", tp->auth)
+            exit(1);
+        }
+        if (tp->maxConn < 1) {
+            TP_CONFIG_LOG("maxConn at least 1\n")
+            exit(1);
+        }
+        tp = tp->next;
+        tpCount++;
     }
 
-    int tpCount;
-    if ((tpCount = checkTpList()) == 0) {
-        freeTpList();
-        return 0;
-    }
-
-    sp_msg(LOG_INFO, "%d transport loaded\n", tpCount);
+    TP_CONFIG_LOG("load %d transport\n", tpCount)
     printTpList();
 
-    return tpCount;
+    if (testTp) {
+        // try connect to smtp server
+        int i;
+        for (i = 1; i <= tpCount; i++) {
+            TP_CONFIG_LOG("testing transport %s...(%d/%d)\n", "xxx", i, tpCount)
+            TP_CONFIG_LOG("ok\n")
+        }
+        exit(0);
+    }
+}
+
+void loadTpConfig(int testTp)
+{
+    TP_CONFIG_LOG("load transport config file: %s\n", TP_INI_FILE)
+
+    int n;
+    if ((n = ini_parse(TP_INI_FILE, tpIniHandler, NULL)) != 0) {
+        TP_CONFIG_LOG("ini_parse error(%d)\n", n);
+        exit(1);
+    }
+
+    checkTpList(testTp);
 }
 
 #define LOCK_TP(tp) pthread_mutex_lock(&tp->mtx);
@@ -229,7 +232,8 @@ static tpConn_t *newConn(tp_t *tp, char *err, size_t errlen)
     tpConn_t *conn;
 
     sockfd = tcpConnect(tp->host, tp->port);
-    if (sockfd == -1){
+    if (sockfd == -1) {
+        TP_LOG("cannot connect to smtp server %s:%s\n", tp->host, tp->port)
         snprintf(err, errlen, "500 cannot connect to smtp server\r\n");
         return NULL;
     }
@@ -283,8 +287,8 @@ static tpConn_t *getAFreeConn(tp_t *tp, int *isNewConn, char *err, size_t errlen
         usleep(300000); // 300ms = 0.3s
     }
 
-    sp_msg(LOG_ERR, "cannot find an idle connection\n");
-    snprintf(err, errlen, "500 cannot find an idle connection\r\n");
+    TP_LOG("getAFreeConn timedout\n")
+    snprintf(err, errlen, "500 server too busy, try later\r\n");
 
     return NULL;
 }

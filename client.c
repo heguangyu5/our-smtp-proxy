@@ -1,5 +1,5 @@
 #include "client.h"
-#include "message.h"
+#include "log.h"
 #include "rcpt.h"
 #include "transport.h"
 #include <stdlib.h>
@@ -63,7 +63,7 @@ void freeCl(void *arg)
 
 void abortClients()
 {
-    sp_msg(LOG_INFO, "abort clients\n");
+    CLIENT_THREAD_LOG("abort clients\n")
 
     cl_t *cl = clList;
     while (cl) {
@@ -74,7 +74,7 @@ void abortClients()
     int i = 0;
     while (clList) {
         sleep(1);
-        sp_msg(LOG_INFO, "aborting ... (%d)\n", ++i);
+        CLIENT_THREAD_LOG("aborting ... (%d)\n", ++i)
     }
 }
 
@@ -91,7 +91,7 @@ static int prepareSendMail(char *msg, char **from, rcpt_t **toList, char **data,
     // data
     *data = strstr(msg, "\r\nDATA\r\n");
     if (*data == NULL) {
-        snprintf(err, errlen, "500 syntax error - invalid msg format\r\n");
+        snprintf(err, errlen, "500 invalid msg format, DATA command not found\r\n");
         return 0;
     }
     memset(*data, 0, 8);
@@ -102,7 +102,7 @@ static int prepareSendMail(char *msg, char **from, rcpt_t **toList, char **data,
     char *to;
     to = strstr(msg, "\r\n");
     if (to == NULL) {
-        snprintf(err, errlen, "500 syntax error - invalid msg format\r\n");
+        snprintf(err, errlen, "500 invalid msg format, recipients not found\r\n");
         return 0;
     }
     do {
@@ -128,7 +128,7 @@ static void sendMail(char *msg, char *res, size_t reslen)
     tp = findTpByName(from);
     if (tp == NULL) {
         freeToList(toList);
-        snprintf(res, reslen, "500 transport not found - invalid transport %s\r\n", from);
+        snprintf(res, reslen, "500 invalid transport, %s not found\r\n", from);
         return;
     }
 
@@ -175,7 +175,7 @@ void *handleClient(void *arg)
         if (r < 0) {
             char error[1024];
             strerror_r(errno, error, 1024);
-            sp_msg(LOG_ERR, "poll error: %s", error);
+            CLIENT_THREAD_LOG("clinet(socket %d) poll error: %s", cl->fd, error)
             free(buf);
             break;
         }
@@ -197,7 +197,7 @@ void *handleClient(void *arg)
                 if (write(cl->fd, res, strlen(res)) == -1) {
                     char error[1024];
                     strerror_r(errno, error, 1024);
-                    sp_msg(LOG_ERR, "write err msg '%s' to client error: %s\n", res, error);
+                    CLIENT_THREAD_LOG("response client(socket %d) '%s' error: %s\n", cl->fd, res, error)
                     free(buf);
                     break;
                 }

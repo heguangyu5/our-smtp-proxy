@@ -1,5 +1,5 @@
 #include "smtp.h"
-#include "message.h"
+#include "log.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -9,19 +9,19 @@
 #include <netdb.h>
 #include <poll.h>
 
-static int smtpWrite(int sockfd, char *data, char *err, int errlen)
+static int smtpWrite(int sockfd, const char *data, char *err, int errlen)
 {
     int n, len;
 
     len = strlen(data);
     if ((n = send(sockfd, data, len, 0)) == -1) {
+        TP_CONN_LOG("socket %d: send error\n", sockfd)
         snprintf(err, errlen, "500 send error\r\n");
-        sp_msg(LOG_ERR, "send error\n");
         return 0;
     }
     if (n < len) {
+        TP_CONN_LOG("socket %d: partial send\n", sockfd)
         snprintf(err, errlen, "500 partial send\r\n");
-        sp_msg(LOG_ERR, "partial send\n");
         return 0;
     }
 
@@ -32,53 +32,54 @@ static int smtpExpect(int sockfd, char *code, int timeout, char *err, int errlen
 {
     int n;
     struct pollfd fds[1];
+    char buf[1024];
     char *responseStart;
 
-    memset(err, 0, errlen);
+    memset(buf, 0, 1024);
 
     fds[0].fd      = sockfd;
     fds[0].events  = POLLIN;
     fds[0].revents = 0;
 
     if (poll(fds, 1, timeout * 1000) == -1) {
+        TP_CONN_LOG("socket %d: poll error\n", sockfd)
         snprintf(err, errlen, "500 poll error\r\n");
-        sp_msg(LOG_ERR, "poll error\n");
         return 0;
     }
 
     if (!(fds[0].revents & POLLIN)) {
-        snprintf(err, errlen, "500 poll error - unexpected revents\r\n");
-        sp_msg(LOG_ERR, "poll error: unexpected revents\n");
+        TP_CONN_LOG("socket %d: poll error, unexpected revents\n", sockfd)
+        snprintf(err, errlen, "500 poll error, unexpected revents\r\n");
         return 0;
     }
 
-    if ((n = recv(sockfd, err, errlen - 1, 0)) == -1) {
+    if ((n = recv(sockfd, buf, 1023, 0)) == -1) {
+        TP_CONN_LOG("socket %d: recv error\n", sockfd)
         snprintf(err, errlen, "500 recv error\r\n");
-        sp_msg(LOG_ERR, "recv error\n");
         return 0;
     }
     if (n < 4) {
-        snprintf(err, errlen, "500 smtp server error - invalid response\r\n");
-        sp_msg(LOG_ERR, "smtp server error: invalid response, expect at least 4 bytes\n");
+        TP_CONN_LOG("socket %d: smtp server error, invalid response, expect at least 4 bytes\n", sockfd)
+        snprintf(err, errlen, "500 smtp server error, invalid response\r\n");
         return 0;
     }
 
-    if (err[n-1] != '\n') {
-        snprintf(err, errlen, "500 smtp server error - invalid response\r\n");
-        sp_msg(LOG_ERR, "smtp server error: invalid response, expect end with \\n\n");
+    if (buf[n-1] != '\n') {
+        TP_CONN_LOG("socket %d: smtp server error, invalid response, expect end with \\n\n")
+        snprintf(err, errlen, "500 smtp server error, invalid response\r\n");
         return 0;
     }
-    err[n-1] = '\0';
+    buf[n-1] = '\0';
 
-    if ((responseStart = strrchr(err, '\n')) != NULL) {
+    if ((responseStart = strrchr(buf, '\n')) != NULL) {
         responseStart++;
     } else {
-        responseStart = err;
+        responseStart = buf;
     }
-    err[n-1] = '\n';
+    buf[n-1] = '\n';
 
     if (strncmp(code, responseStart, 3) != 0) {
-        err = responseStart;
+        strncpy(err, buf, errlen);
         return 0;
     }
 
@@ -95,7 +96,7 @@ int tcpConnect(const char *host, const char *port)
     hints.ai_socktype = SOCK_STREAM;
 
     if ((n = getaddrinfo(host, port, &hints, &res)) != 0) {
-        sp_msg(LOG_ERR, "getaddrinfo error for %s:%s, %s", host, port, gai_strerror(n));
+        TP_CONN_LOG("getaddrinfo error for %s:%s, %s\n", host, port, gai_strerror(n))
         return -1;
     }
 
@@ -111,7 +112,7 @@ int tcpConnect(const char *host, const char *port)
     }
 
     if (rp == NULL) {
-        sp_msg(LOG_ERR, "cannot connect to %s:%s", host, port);
+        TP_CONN_LOG("cannot connect to %s:%s", host, port)
         freeaddrinfo(res);
         return -1;
     }
@@ -127,7 +128,10 @@ int smtpEHLO(int sockfd, char *err, size_t errlen)
             && smtpExpect(sockfd, "250", 300, err, errlen));
 }
 
-static const char enMap[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static const char enMap[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                            "abcdefghijklmnopqrstuvwxyz"
+                            "0123456789"
+                            "+/";
 #define BAD -1
 static const char deMap[] = {
     BAD,BAD,BAD,BAD, BAD,BAD,BAD,BAD, BAD,BAD,BAD,BAD, BAD,BAD,BAD,BAD,
@@ -209,8 +213,8 @@ int smtpAuth(int sockfd, const char *auth, const char *username, const char *pas
         free(p64);
         return 0;
     }
-
     free(p64);
+
     return 1;
 }
 
@@ -227,7 +231,10 @@ int smtpRCPTTO(int sockfd, rcpt_t *toList, char *err, size_t errlen)
     rcpt_t *to = toList;
     while (to) {
         snprintf(buf, 1024, "RCPT TO:<%s>", to->email);
-        if (!smtpWrite(sockfd, buf, err, errlen) || !smtpExpect(sockfd, "250", 300, err, errlen)) {
+        if (!smtpWrite(sockfd, buf, err, errlen)
+            || !smtpExpect(sockfd, "250", 300, err, errlen)
+            || strncmp("251", err, 3) != 0
+        ) {
             return 0;
         }
         to = to->next;
@@ -242,7 +249,8 @@ int smtpDATA(int sockfd, const char *data, char *err, size_t errlen)
 
 int smtpRSET(int sockfd, char *err, size_t errlen)
 {
-    return (smtpWrite(sockfd, "RSET", err, errlen) && smtpExpect(sockfd, "250", 60, err, errlen));
+    return (smtpWrite(sockfd, "RSET", err, errlen)
+            && (smtpExpect(sockfd, "250", 60, err, errlen) || strncmp("220", err, 3) == 0));
 }
 
 int smtpNOOP(int sockfd)

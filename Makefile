@@ -1,5 +1,5 @@
-main: main.o transport.o ini.o message.o client.o rcpt.o smtp.o
-	gcc -Wall -pthread -g -o our-smtp-proxy main.o transport.o ini.o message.o client.o rcpt.o smtp.o
+main: main.o transport.o ini.o log.o client.o rcpt.o smtp.o
+	gcc -Wall -pthread -o our-smtp-proxy main.o transport.o ini.o log.o client.o rcpt.o smtp.o
 
 main.o: main.c
 	gcc -Wall -c main.c
@@ -10,8 +10,8 @@ transport.o: transport.h transport.c
 ini.o: ini.h ini.c
 	gcc -Wall -c ini.c
 
-message.o: message.h message.c
-	gcc -Wall -c message.c
+log.o: log.h log.c
+	gcc -Wall -c log.c
 
 client.o: client.h client.c
 	gcc -Wall -c client.c

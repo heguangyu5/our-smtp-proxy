@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <pthread.h>
 
+#define TP_INI_FILE "transport.ini"
+
 typedef struct tpConn {
     int sockfd;
     int sendCount;
@@ -40,7 +42,7 @@ typedef struct tp {
 } tp_t;
 
 tp_t *findTpByName(const char *name);
-int loadTpConfig();
+void loadTpConfig(int testTp);
 void freeTpList();
 int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *err, size_t errlen);
 void abortTpConns();
