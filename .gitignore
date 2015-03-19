@@ -1,3 +1,4 @@
 *.o
 transport.ini
 our-smtp-proxy
+test-smtp

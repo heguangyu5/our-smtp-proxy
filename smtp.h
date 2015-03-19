@@ -12,5 +12,6 @@ int smtpRCPTTO(int sockfd, rcpt_t *toList, char *err, size_t errlen);
 int smtpDATA(int sockfd, const char *data, char *err, size_t errlen);
 int smtpRSET(int sockfd, char *err, size_t errlen);
 int smtpNOOP(int sockfd);
+int smtpQUIT(int sockfd);
 
 #endif

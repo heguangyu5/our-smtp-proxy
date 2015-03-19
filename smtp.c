@@ -14,6 +14,7 @@ static int smtpWrite(int sockfd, const char *data, char *err, int errlen)
     int n, len;
 
     len = strlen(data);
+    DPRINTF("smtpWrite(socket %d, len %d): %s", sockfd, len, data)
     if ((n = send(sockfd, data, len, 0)) == -1) {
         TP_CONN_LOG("socket %d: send error\n", sockfd)
         snprintf(err, errlen, "500 send error\r\n");
@@ -69,8 +70,10 @@ static int smtpExpect(int sockfd, char *code, int timeout, char *err, int errlen
         snprintf(err, errlen, "500 smtp server error, invalid response\r\n");
         return 0;
     }
-    buf[n-1] = '\0';
 
+    DPRINTF("smtpExpect(sockfd %d, code %s): %s", sockfd, code, buf)
+
+    buf[n-1] = '\0';
     if ((responseStart = strrchr(buf, '\n')) != NULL) {
         responseStart++;
     } else {
@@ -197,7 +200,7 @@ int smtpAuth(int sockfd, const char *auth, const char *username, const char *pas
         return 0;
     }
 
-    if (!smtpWrite(sockfd, "AUTH LOGIN", err, errlen) || !smtpExpect(sockfd, "334", 60, err, errlen)) {
+    if (!smtpWrite(sockfd, "AUTH LOGIN\r\n", err, errlen) || !smtpExpect(sockfd, "334", 60, err, errlen)) {
         return 0;
     }
 
@@ -221,7 +224,7 @@ int smtpAuth(int sockfd, const char *auth, const char *username, const char *pas
 int smtpMAILFROM(int sockfd, const char *from, char *err, size_t errlen)
 {
     char buf[1024];
-    snprintf(buf, 1024, "MAIL FROM:<%s>", from);
+    snprintf(buf, 1024, "MAIL FROM:<%s>\r\n", from);
     return (smtpWrite(sockfd, buf, err, errlen) && smtpExpect(sockfd, "250", 300, err, errlen));
 }
 
@@ -230,12 +233,11 @@ int smtpRCPTTO(int sockfd, rcpt_t *toList, char *err, size_t errlen)
     char buf[1024];
     rcpt_t *to = toList;
     while (to) {
-        snprintf(buf, 1024, "RCPT TO:<%s>", to->email);
-        if (!smtpWrite(sockfd, buf, err, errlen)
-            || !smtpExpect(sockfd, "250", 300, err, errlen)
-            || strncmp("251", err, 3) != 0
-        ) {
-            return 0;
+        snprintf(buf, 1024, "RCPT TO:<%s>\r\n", to->email);
+        if (!smtpWrite(sockfd, buf, err, errlen) || !smtpExpect(sockfd, "250", 300, err, errlen)) {
+            if (strncmp("251", err, 3) != 0) {
+                return 0;
+            }
         }
         to = to->next;
     }
@@ -244,17 +246,26 @@ int smtpRCPTTO(int sockfd, rcpt_t *toList, char *err, size_t errlen)
 
 int smtpDATA(int sockfd, const char *data, char *err, size_t errlen)
 {
-    return (smtpWrite(sockfd, data, err, errlen) && smtpExpect(sockfd, "250", 600, err, errlen));
+    return (smtpWrite(sockfd, "DATA\r\n", err, errlen)
+            && smtpExpect(sockfd, "354", 120, err, errlen)
+            && smtpWrite(sockfd, data, err, errlen)
+            && smtpExpect(sockfd, "250", 600, err, errlen));
 }
 
 int smtpRSET(int sockfd, char *err, size_t errlen)
 {
-    return (smtpWrite(sockfd, "RSET", err, errlen)
+    return (smtpWrite(sockfd, "RSET\r\n", err, errlen)
             && (smtpExpect(sockfd, "250", 60, err, errlen) || strncmp("220", err, 3) == 0));
 }
 
 int smtpNOOP(int sockfd)
 {
     char err[1024];
-    return (smtpWrite(sockfd, "NOOP", err, 1024) && smtpExpect(sockfd, "250", 300, err, 1024));
+    return (smtpWrite(sockfd, "NOOP\r\n", err, 1024) && smtpExpect(sockfd, "250", 300, err, 1024));
+}
+
+int smtpQUIT(int sockfd)
+{
+    char err[1024];
+    return (smtpWrite(sockfd, "QUIT\r\n", err, 1024) && smtpExpect(sockfd, "221", 300, err, 1024));
 }
