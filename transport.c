@@ -63,6 +63,7 @@ static int tpIniHandler(void *user, const char *section, const char *name, const
     else HANDLE_INT_ITEM(maxSendPerConn)
     else HANDLE_INT_ITEM(sleepSecondsPerSend)
     else HANDLE_INT_ITEM(maxNoop)
+    else HANDLE_INT_ITEM(sleepSecondsPerNoop)
     else {
         TP_CONFIG_LOG("unknown config item %s = %s\n", name, value)
         return 0;
@@ -106,6 +107,7 @@ static void printTpList()
 "maxSendPerConn      = %d\n"
 "sleepSecondsPerSend = %d\n"
 "maxNoop             = %d\n"
+"sleepSecondsPerNoop = %d\n"
 "\n",
             tp->name,
             tp->host,
@@ -117,7 +119,8 @@ static void printTpList()
             tp->maxConn,
             tp->maxSendPerConn,
             tp->sleepSecondsPerSend,
-            tp->maxNoop
+            tp->maxNoop,
+            tp->sleepSecondsPerNoop
 );
         tp = tp->next;
     }
@@ -221,7 +224,7 @@ static void *connNOOP(void *arg)
             pthread_exit(NULL);
         }
         UNLOCK_TP_CONN(conn)
-        sleep(2);
+        sleep(conn->tp->sleepSecondsPerNoop);
     }
 }
 
@@ -247,13 +250,17 @@ static tpConn_t *newConn(tp_t *tp, char *err, size_t errlen)
         pthread_mutex_init(&newConn->mtx, NULL);
         LOCK_TP_CONN(newConn)
         pthread_create(&newConn->tid, NULL, &connNOOP, newConn);
-        conn = tp->conn;
-        while (conn->next) {
-            conn = conn->next;
+        if (tp->conn == NULL) {
+            tp->conn = newConn;
+        } else {
+            conn = tp->conn;
+            while (conn->next) {
+                conn = conn->next;
+            }
+            conn->next    = newConn;
+            newConn->prev = conn;
         }
-        conn->next    = newConn;
-        newConn->prev = conn;
-        return conn;
+        return newConn;
     }
 
     close(sockfd);
@@ -302,8 +309,16 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
     }
 
     conn->noopCount = 0;
-    if ((!isNewConn && smtpRSET(conn->sockfd, res, reslen))
-        && smtpMAILFROM(conn->sockfd, tp->name, res, reslen)
+
+    if (!isNewConn) {
+        if (!smtpRSET(conn->sockfd, res, reslen)) {
+            pthread_cancel(conn->tid);
+            endConn(conn);
+            return 0;
+        }
+    }
+
+    if (smtpMAILFROM(conn->sockfd, tp->name, res, reslen)
         && smtpRCPTTO(conn->sockfd, toList, res, reslen)
         && smtpDATA(conn->sockfd, data, res, reslen)
     ) {

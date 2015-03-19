@@ -37,6 +37,7 @@ typedef struct tp {
     int maxSendPerConn;
     int sleepSecondsPerSend;
     int maxNoop;
+    int sleepSecondsPerNoop;
 
     struct tp *next;
 } tp_t;

@@ -71,7 +71,7 @@ static int smtpExpect(int sockfd, char *code, int timeout, char *err, int errlen
         return 0;
     }
 
-    DPRINTF("smtpExpect(sockfd %d, code %s): %s", sockfd, code, buf)
+    DPRINTF("smtpExpect(socket %d, code %s): %s", sockfd, code, buf)
 
     buf[n-1] = '\0';
     if ((responseStart = strrchr(buf, '\n')) != NULL) {
@@ -81,8 +81,8 @@ static int smtpExpect(int sockfd, char *code, int timeout, char *err, int errlen
     }
     buf[n-1] = '\n';
 
+    strncpy(err, responseStart, errlen);
     if (strncmp(code, responseStart, 3) != 0) {
-        strncpy(err, buf, errlen);
         return 0;
     }
 

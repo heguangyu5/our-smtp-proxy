@@ -6,9 +6,10 @@ auth                = LOGIN
 username            = tpa@126.com
 password            = pass
 maxConn             = 4
-maxSendPerConn      = 100
+maxSendPerConn      = 8
 sleepSecondsPerSend = 2
-maxNoop             = 150
+maxNoop             = 30
+sleepSecondsPerNoop = 10
 
 [tpb@126.com]
 host                = smtp.126.com
@@ -18,6 +19,7 @@ auth                = LOGIN
 username            = tpb@126.com
 password            = pass
 maxConn             = 4
-maxSendPerConn      = 100
+maxSendPerConn      = 8
 sleepSecondsPerSend = 2
-maxNoop             = 150
+maxNoop             = 30
+sleepSecondsPerNoop = 10
