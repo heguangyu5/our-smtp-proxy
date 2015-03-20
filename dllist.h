@@ -9,6 +9,10 @@ typedef struct dllistNode {
     struct dllistNode *next;
 } dllistNode_t;
 
+typedef struct dllistNodeData {
+    dllistNode_t *node;
+} dllistNodeData_t;
+
 typedef struct dllist {
     dllistNode_t *head;
     dllistNode_t *tail;
@@ -20,9 +24,9 @@ typedef struct dllist {
 
 dllist_t *dllistInit(int maxNodes);
 void dllistDestroy(dllist_t *dllist);
-void dllistAppend(dllist_t *dllist, dllistNode_t *node);
-void dllistDelete(dllist_t *dllist, dllistNode_t *node);
-void dllistVisit(dllist_t *dllist, void (*nodeHandler)(dllistNode_t *node));
+void dllistAppend(dllist_t *dllist, void *data);
+void dllistDelete(dllist_t *dllist, void *data);
+void dllistVisit(dllist_t *dllist, void (*nodeHandler)(void *data));
 int  dllistCountNodes(dllist_t *dllist);
 
 #endif

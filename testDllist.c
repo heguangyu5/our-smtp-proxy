@@ -12,6 +12,7 @@
  */
 
 typedef struct client {
+    dllistNode_t *node;
     int id;
 } client_t;
 
@@ -20,24 +21,21 @@ void cutHead(int signo) {}
 void *append(void *arg)
 {
     dllist_t *dllist = (dllist_t *)arg;
-    dllistNode_t *node;
     client_t *cl;
     int i = 0;
 
     for (;;) {
         i++;
-        node = calloc(1, sizeof(dllistNode_t));
-        cl   = calloc(1, sizeof(client_t));
+        cl = calloc(1, sizeof(client_t));
         cl->id = i;
-        node->data = cl;
-        dllistAppend(dllist, node);
+        dllistAppend(dllist, cl);
         sleep(1);
     }
 }
 
-void printNode(dllistNode_t *node)
+void printNode(void *data)
 {
-    client_t *cl = (client_t *)node->data;
+    client_t *cl = (client_t *)data;
     printf("%d ", cl->id);
 }
 
@@ -56,7 +54,7 @@ int main(int argc, char *argv[])
     int maxNodes;
     pthread_t t1, t2;
     dllist_t *dllist;
-    dllistNode_t *node;
+    client_t *cl;
 
     if (argc != 2) {
         fprintf(stderr, "usage: %s maxNodes\n", argv[0]);
@@ -76,10 +74,15 @@ int main(int argc, char *argv[])
     for (;;) {
         pause();
         pthread_mutex_lock(&dllist->mtx);
-        node = dllist->head;
+        cl = NULL;
+        if (dllist->head) {
+            cl = (client_t *)dllist->head->data;
+        }
         pthread_mutex_unlock(&dllist->mtx);
-        dllistDelete(dllist, node);
-        free(node);
+        if (cl) {
+            dllistDelete(dllist, cl);
+            free(cl);
+        }
     }
 
     return 0;

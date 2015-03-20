@@ -21,8 +21,12 @@ void dllistDestroy(dllist_t *dllist)
     free(dllist);
 }
 
-void dllistAppend(dllist_t *dllist, dllistNode_t *node)
+void dllistAppend(dllist_t *dllist, void *data)
 {
+    dllistNode_t *node = calloc(1, sizeof(dllistNode_t));
+    node->data = data;
+    ((dllistNodeData_t *)data)->node = node;
+
     pthread_mutex_lock(&dllist->mtx);
 
     if (dllist->maxNodes) {
@@ -46,11 +50,19 @@ void dllistAppend(dllist_t *dllist, dllistNode_t *node)
     pthread_mutex_unlock(&dllist->mtx);
 }
 
-void dllistDelete(dllist_t *dllist, dllistNode_t *node)
+void dllistDelete(dllist_t *dllist, void *data)
 {
+    if (data == NULL) {
+        return;
+    }
+
+    dllistNode_t *node = ((dllistNodeData_t *)data)->node;
     if (node == NULL) {
         return;
     }
+
+    node->data = NULL;
+    ((dllistNodeData_t *)data)->node = NULL;
 
     pthread_mutex_lock(&dllist->mtx);
 
@@ -79,9 +91,11 @@ void dllistDelete(dllist_t *dllist, dllistNode_t *node)
     if (dllist->maxNodes) {
         pthread_cond_signal(&dllist->cond);
     }
+
+    free(node);
 }
 
-void dllistVisit(dllist_t *dllist, void (*nodeHandler)(dllistNode_t *node))
+void dllistVisit(dllist_t *dllist, void (*nodeHandler)(void *data))
 {
     dllistNode_t *node;
 
@@ -89,7 +103,7 @@ void dllistVisit(dllist_t *dllist, void (*nodeHandler)(dllistNode_t *node))
 
     node = dllist->head;
     while (node) {
-        nodeHandler(node);
+        nodeHandler(node->data);
         node = node->next;
     }
 
