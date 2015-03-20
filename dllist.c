@@ -1,13 +1,20 @@
 #include "dllist.h"
 #include <stdlib.h>
+#include <errno.h>
+#include <time.h>
 
-dllist_t *dllistInit(int maxNodes)
+dllist_t *dllistInit(int maxNodes, int condTimeout)
 {
     dllist_t *dllist = calloc(1, sizeof(dllist_t));
     dllist->maxNodes = maxNodes;
     pthread_mutex_init(&dllist->mtx, NULL);
     if (maxNodes) {
-        pthread_cond_init(&dllist->cond, NULL);
+        dllist->condTimeout = condTimeout;
+        pthread_condattr_t attr;
+        pthread_condattr_init(&attr);
+        pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
+        pthread_cond_init(&dllist->cond, &attr);
+        pthread_condattr_destroy(&attr);
     }
     return dllist;
 }
@@ -21,19 +28,26 @@ void dllistDestroy(dllist_t *dllist)
     free(dllist);
 }
 
-void dllistAppend(dllist_t *dllist, void *data)
+int dllistAppend(dllist_t *dllist, void *data)
 {
-    dllistNode_t *node = calloc(1, sizeof(dllistNode_t));
-    node->data = data;
-    ((dllistNodeData_t *)data)->node = node;
+    struct timespec to;
+    clock_gettime(CLOCK_MONOTONIC, &to);
+    to.tv_sec += dllist->condTimeout;
 
     pthread_mutex_lock(&dllist->mtx);
 
     if (dllist->maxNodes) {
         while (dllist->nodesCount == dllist->maxNodes) {
-            pthread_cond_wait(&dllist->cond, &dllist->mtx);
+            if (pthread_cond_timedwait(&dllist->cond, &dllist->mtx, &to) == ETIMEDOUT) {
+                pthread_mutex_unlock(&dllist->mtx);
+                return 0;
+            }
         }
     }
+
+    dllistNode_t *node = calloc(1, sizeof(dllistNode_t));
+    node->data = data;
+    ((dllistNodeData_t *)data)->node = node;
 
     if (dllist->tail == NULL) {
         node->prev = NULL;
@@ -48,6 +62,8 @@ void dllistAppend(dllist_t *dllist, void *data)
     dllist->nodesCount++;
 
     pthread_mutex_unlock(&dllist->mtx);
+
+    return 1;
 }
 
 void dllistDelete(dllist_t *dllist, void *data)

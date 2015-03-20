@@ -2,12 +2,12 @@
 #define __CLIENT_H
 
 #include <pthread.h>
+#include "dllist.h"
 
 typedef struct cl {
+    dllistNode_t *node;
     int fd;
     pthread_t tid;
-    struct cl *prev;
-    struct cl *next;
 } cl_t;
 
 cl_t *newCl(int fd);

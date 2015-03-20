@@ -28,7 +28,10 @@ void *append(void *arg)
         i++;
         cl = calloc(1, sizeof(client_t));
         cl->id = i;
-        dllistAppend(dllist, cl);
+        if (!dllistAppend(dllist, cl)) {
+            free(cl);
+            printf("dllistAppend timedout\n");
+        }
         sleep(1);
     }
 }
@@ -51,23 +54,24 @@ void *print(void *arg)
 
 int main(int argc, char *argv[])
 {
-    int maxNodes;
+    int maxNodes, condTimeout;
     pthread_t t1, t2;
     dllist_t *dllist;
     client_t *cl;
 
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s maxNodes\n", argv[0]);
+    if (argc != 3) {
+        fprintf(stderr, "usage: %s maxNodes condTimeout\n", argv[0]);
         exit(1);
     }
 
-    maxNodes = atoi(argv[1]);
+    maxNodes    = atoi(argv[1]);
+    condTimeout = atoi(argv[2]);
 
     signal(SIGINT, cutHead);
 
     printf("pid = %d\n", getpid());
 
-    dllist = dllistInit(maxNodes);
+    dllist = dllistInit(maxNodes, condTimeout);
     t1 = pthread_create(&t1, NULL, append, (void *)dllist);
     t2 = pthread_create(&t2, NULL, print, (void *)dllist);
 

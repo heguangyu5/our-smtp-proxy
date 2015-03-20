@@ -17,16 +17,13 @@
 #define BIND_PORT "9925"
 #define BACKLOG   5
 
-tp_t *tpList;
+#define MAX_CLIENTS 5   // proxy自身允许的最大连接数
+#define MAX_WAIT    10  // 超出最大连接数的连接最多等待几秒proxy就要给出响应
 
-// clList这个双向链表会随着client的连接和断开而添加和删除节点
-// 对其的操作应该有一个mutex保证
-cl_t *clList;
-
-int quit;
-
-// stdout OR LOG_FILE
-FILE *logFile;
+tp_t     *tpList;
+dllist_t *clients;
+int      quit;
+FILE     *logFile; // // stdout OR LOG_FILE
 
 static int setup()
 {
@@ -81,6 +78,8 @@ static void mainLoop(int sockfd)
     char buf[1024];
     cl_t *cl;
 
+    clients = dllistInit(MAX_CLIENTS, MAX_WAIT);
+
     mylog("our-smtp-proxy started\n");
     mylog("accepting connections\n");
 
@@ -111,7 +110,12 @@ static void mainLoop(int sockfd)
         }
 
         cl = newCl(fd);
-        pthread_create(&cl->tid, NULL, &handleClient, cl);
+        if (cl == NULL) {
+            write(fd, "500 Too many connections\r\n", 28);
+            close(fd);
+        } else {
+            pthread_create(&cl->tid, NULL, &handleClient, cl);
+        }
     }
 
     // cleanup

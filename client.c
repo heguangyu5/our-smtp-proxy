@@ -9,73 +9,44 @@
 #include <string.h>
 #include <errno.h>
 
-extern cl_t *clList;
-static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
-
-#define LOCK_CLLIST pthread_mutex_lock(&mtx);
-#define UNLOCK_CLLIST pthread_mutex_unlock(&mtx);
+extern dllist_t *clients;
 
 cl_t *newCl(int fd)
 {
-    cl_t *newCl = calloc(1, sizeof(cl_t));
-    cl_t *cl;
-
-    newCl->fd = fd;
-
-    LOCK_CLLIST
-
-    if (clList == NULL) {
-        clList = newCl;
-    } else {
-        cl = clList;
-        while (cl->next) {
-            cl = cl->next;
-        }
-        cl->next = newCl;
-        newCl->prev = cl;
+    cl_t *cl = calloc(1, sizeof(cl_t));
+    cl->fd = fd;
+    if (!dllistAppend(clients, cl)) {
+        free(cl);
+        return NULL;
     }
-
-    UNLOCK_CLLIST
-
-    return newCl;
+    return cl;
 }
 
-void freeCl(void *arg)
+static void freeCl(void *arg)
 {
     cl_t *cl = (cl_t *)arg;
-
-    LOCK_CLLIST
-
-    if (cl == clList) { // head
-        clList = cl->next;
-    } else if (cl->next == NULL) { // tail
-        cl->prev->next = NULL;
-    } else {
-        cl->prev->next = cl->next;
-        cl->next->prev = cl->prev;
-    }
-
-    UNLOCK_CLLIST
-
     close(cl->fd);
+    dllistDelete(clients, cl);
     free(cl);
+}
+
+static void abortCl(void *cl)
+{
+    pthread_cancel(((cl_t *)cl)->tid);
 }
 
 void abortClients()
 {
-    CLIENT_THREAD_LOG("abort clients\n")
+    MAIN_THREAD_LOG("abort clients ...\n")
+    dllistVisit(clients, abortCl);
 
-    cl_t *cl = clList;
-    while (cl) {
-        pthread_cancel(cl->tid);
-        cl = cl->next;
+    pthread_mutex_lock(&clients->mtx);
+    while (clients->nodesCount > 0) {
+        pthread_cond_wait(&clients->cond, &clients->mtx);
     }
+    pthread_mutex_unlock(&clients->mtx);
 
-    int i = 0;
-    while (clList) {
-        sleep(1);
-        CLIENT_THREAD_LOG("aborting ... (%d)\n", ++i)
-    }
+    MAIN_THREAD_LOG("all clients aborted\n");
 }
 
 static int prepareSendMail(char *msg, char **from, rcpt_t **toList, char **data, char *err, size_t errlen)

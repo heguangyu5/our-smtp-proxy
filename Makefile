@@ -1,13 +1,13 @@
 all: main test-smtp test-dllist
 
-main: main.o transport.o ini.o log.o client.o rcpt.o smtp.o
-	gcc -Wall -pthread -o our-smtp-proxy main.o transport.o ini.o log.o client.o rcpt.o smtp.o
+main: ini.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o
+	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o our-smtp-proxy ini.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o
 
 test-smtp: testSmtp.o log.o rcpt.o smtp.o
 	gcc -Wall -o test-smtp testSmtp.o log.o rcpt.o smtp.o
 
 test-dllist: testDllist.o dllist.o
-	gcc -Wall -pthread -o test-dllist testDllist.o dllist.o
+	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o test-dllist testDllist.o dllist.o
 
 main.o: main.c
 	gcc -Wall -c main.c

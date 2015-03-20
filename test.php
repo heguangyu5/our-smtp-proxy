@@ -111,7 +111,11 @@ for ($i = 0; $i < $totalChildren; $i++) {
     } else if ($pid == 0) {
         $pid = posix_getpid();
         echo "$pid started\n";
-        sendMail($pid, $sendPerChild, $transport);
+        try {
+            sendMail($pid, $sendPerChild, $transport);
+        } catch (Exception $e) {
+            echo $pid, ': ', $e->getMessage(), "\n";
+        }
         exit;
     }
 }

@@ -20,11 +20,12 @@ typedef struct dllist {
     int nodesCount;
     pthread_mutex_t mtx;
     pthread_cond_t cond;
+    int condTimeout;
 } dllist_t;
 
-dllist_t *dllistInit(int maxNodes);
+dllist_t *dllistInit(int maxNodes, int condTimeout);
 void dllistDestroy(dllist_t *dllist);
-void dllistAppend(dllist_t *dllist, void *data);
+int  dllistAppend(dllist_t *dllist, void *data);
 void dllistDelete(dllist_t *dllist, void *data);
 void dllistVisit(dllist_t *dllist, void (*nodeHandler)(void *data));
 int  dllistCountNodes(dllist_t *dllist);
