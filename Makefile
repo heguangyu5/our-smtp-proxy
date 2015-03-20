@@ -1,10 +1,13 @@
-all: main test-smtp
+all: main test-smtp test-dllist
 
 main: main.o transport.o ini.o log.o client.o rcpt.o smtp.o
 	gcc -Wall -pthread -o our-smtp-proxy main.o transport.o ini.o log.o client.o rcpt.o smtp.o
 
 test-smtp: testSmtp.o log.o rcpt.o smtp.o
 	gcc -Wall -o test-smtp testSmtp.o log.o rcpt.o smtp.o
+
+test-dllist: testDllist.o dllist.o
+	gcc -Wall -pthread -o test-dllist testDllist.o dllist.o
 
 main.o: main.c
 	gcc -Wall -c main.c
@@ -30,5 +33,11 @@ smtp.o: smtp.h smtp.c
 testSmtp.o: testSmtp.c
 	gcc -Wall -c testSmtp.c
 
+dllist.o: dllist.h dllist.c
+	gcc -Wall -c dllist.c
+
+testDllist.o: testDllist.c
+	gcc -Wall -c testDllist.c
+
 clean:
-	rm *.o our-smtp-proxy test-smtp
+	rm *.o our-smtp-proxy test-smtp test-dllist
