@@ -10,6 +10,7 @@
 #include <errno.h>
 
 extern dllist_t *clients;
+extern dllist_t *transports;
 
 cl_t *newCl(int fd)
 {
@@ -38,7 +39,7 @@ static void abortCl(void *cl)
 void abortClients()
 {
     MAIN_THREAD_LOG("abort clients ...\n")
-    dllistVisit(clients, abortCl);
+    dllistVisit(clients, abortCl, NULL);
 
     pthread_mutex_lock(&clients->mtx);
     while (clients->nodesCount > 0) {
@@ -96,7 +97,7 @@ static void sendMail(char *msg, char *res, size_t reslen)
         return;
     }
 
-    tp = findTpByName(from);
+    tp = dllistVisit(transports, findTpByName, from);
     if (tp == NULL) {
         freeToList(toList);
         snprintf(res, reslen, "500 invalid transport, %s not found\r\n", from);

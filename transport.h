@@ -4,6 +4,7 @@
 #include "rcpt.h"
 #include <stddef.h>
 #include <pthread.h>
+#include "dllist.h"
 
 #define TP_INI_FILE "transport.ini"
 
@@ -19,6 +20,8 @@ typedef struct tpConn {
 } tpConn_t;
 
 typedef struct tp {
+    dllistNode_t *node;
+
     char *name;
 
     char *host;
@@ -38,11 +41,9 @@ typedef struct tp {
     int sleepSecondsPerSend;
     int maxNoop;
     int sleepSecondsPerNoop;
-
-    struct tp *next;
 } tp_t;
 
-tp_t *findTpByName(const char *name);
+int findTpByName(void *tp, void *name);
 void loadTpConfig(int testTp);
 void freeTpList();
 int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *err, size_t errlen);

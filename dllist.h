@@ -27,7 +27,7 @@ dllist_t *dllistInit(int maxNodes, int condTimeout);
 void dllistDestroy(dllist_t *dllist);
 int  dllistAppend(dllist_t *dllist, void *data);
 void dllistDelete(dllist_t *dllist, void *data);
-void dllistVisit(dllist_t *dllist, void (*nodeHandler)(void *data));
+void *dllistVisit(dllist_t *dllist, int (*nodeHandler)(void *data, void *arg), void *arg);
 int  dllistCountNodes(dllist_t *dllist);
 
 #endif

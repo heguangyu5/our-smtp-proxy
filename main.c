@@ -20,7 +20,7 @@
 #define MAX_CLIENTS 5   // proxy自身允许的最大连接数
 #define MAX_WAIT    10  // 超出最大连接数的连接最多等待几秒proxy就要给出响应
 
-tp_t     *tpList;
+dllist_t *transports;
 dllist_t *clients;
 int      quit;
 FILE     *logFile; // // stdout OR LOG_FILE
@@ -166,6 +166,7 @@ int main(int argc, char *argv[])
     }
 
     // exit 1 if failed
+    transports = dllistInit(0, 0);
     loadTpConfig(testTp);
 
     signal(SIGINT, onQuit);

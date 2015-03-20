@@ -111,7 +111,7 @@ void dllistDelete(dllist_t *dllist, void *data)
     free(node);
 }
 
-void dllistVisit(dllist_t *dllist, void (*nodeHandler)(void *data))
+void *dllistVisit(dllist_t *dllist, int (*nodeHandler)(void *data, void *arg), void *arg)
 {
     dllistNode_t *node;
 
@@ -119,11 +119,18 @@ void dllistVisit(dllist_t *dllist, void (*nodeHandler)(void *data))
 
     node = dllist->head;
     while (node) {
-        nodeHandler(node->data);
+        if (!nodeHandler(node->data, arg)) {
+            break;
+        }
         node = node->next;
     }
 
     pthread_mutex_unlock(&dllist->mtx);
+
+    if (node) {
+        return node->data;
+    }
+    return NULL;
 }
 
 int dllistCountNodes(dllist_t *dllist)

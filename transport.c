@@ -1,3 +1,4 @@
+#include "dllist.h"
 #include "transport.h"
 #include "ini.h"
 #include "log.h"
@@ -6,47 +7,26 @@
 #include <string.h>
 #include <unistd.h>
 
-extern char *tpIni;
-extern tp_t *tpList;
+extern dllist_t *transports;
 
-tp_t *findTpByName(const char *name)
+int findTpByName(void *tp, void *name)
 {
-    tp_t *tp = tpList;
-
-    while (tp) {
-        if (strcmp(tp->name, name) == 0) {
-            return tp;
-        }
-        tp = tp->next;
-    }
-
-    return NULL;
+    return !(strcmp(((tp_t *)tp)->name, (char *)name) == 0);
 }
 
 static tp_t *newTp(const char *name)
 {
-    tp_t *newTp = calloc(1, sizeof(tp_t));
-    tp_t *tp = tpList;
-
-    newTp->name = strdup(name);
-    pthread_mutex_init(&newTp->mtx, NULL);
-
-    if (tpList == NULL) {
-        tpList = newTp;
-    } else {
-        while (tp->next) {
-            tp = tp->next;
-        }
-        tp->next = newTp;
-    }
-
-    return newTp;
+    tp_t *tp = calloc(1, sizeof(tp_t));
+    tp->name = strdup(name);
+    pthread_mutex_init(&tp->mtx, NULL);
+    dllistAppend(transports, tp);
+    return tp;
 }
 
 static int tpIniHandler(void *user, const char *section, const char *name, const char *value)
 {
     // find tp by section
-    tp_t *tp = findTpByName(section);
+    tp_t *tp = dllistVisit(transports, findTpByName, (void *)section);
     if (tp == NULL) {
         tp = newTp(section);
     }
@@ -72,114 +52,114 @@ static int tpIniHandler(void *user, const char *section, const char *name, const
     return 1;
 }
 
+static int freeTp(void *data, void *arg)
+{
+    tp_t *tp = (tp_t *)data;
+
+    free(tp->host);
+    free(tp->port);
+    free(tp->ssl);
+    free(tp->auth);
+    free(tp->username);
+    free(tp->password);
+    pthread_mutex_destroy(&tp->mtx);
+
+    return 1;
+}
+
 void freeTpList()
 {
-    tp_t *tp;
-
     TP_CONFIG_LOG("free tpList\n")
-    #define SAFE_FREE(m) if (m) free(m)
-    while (tpList) {
-        tp = tpList;
-        SAFE_FREE(tp->host);
-        SAFE_FREE(tp->port);
-        SAFE_FREE(tp->ssl);
-        SAFE_FREE(tp->auth);
-        SAFE_FREE(tp->username);
-        SAFE_FREE(tp->password);
-        pthread_mutex_destroy(&tp->mtx);
-        tpList = tpList->next;
-        free(tp);
-    }
+    dllistVisit(transports, freeTp, NULL);
+    TP_CONFIG_LOG("all transports are freed\n");
 }
 
-static void printTpList()
+static int printTp(void *data, void *arg)
 {
-    tp_t *tp = tpList;
-    while (tp) {
-        mylog("\n[%s]\n"
-"host                = %s\n"
-"port                = %s\n"
-"ssl                 = %s\n"
-"auth                = %s\n"
-"username            = %s\n"
-"password            = %s\n"
-"maxConn             = %d\n"
-"maxSendPerConn      = %d\n"
-"sleepSecondsPerSend = %d\n"
-"maxNoop             = %d\n"
-"sleepSecondsPerNoop = %d\n"
-"\n",
-            tp->name,
-            tp->host,
-            tp->port,
-            tp->ssl,
-            tp->auth,
-            tp->username,
-            tp->password,
-            tp->maxConn,
-            tp->maxSendPerConn,
-            tp->sleepSecondsPerSend,
-            tp->maxNoop,
-            tp->sleepSecondsPerNoop
-);
-        tp = tp->next;
-    }
+    tp_t *tp = (tp_t *)data;
+
+    mylog(
+        "\n[%s]\n"
+        "host                = %s\n"
+        "port                = %s\n"
+        "ssl                 = %s\n"
+        "auth                = %s\n"
+        "username            = %s\n"
+        "password            = %s\n"
+        "maxConn             = %d\n"
+        "maxSendPerConn      = %d\n"
+        "sleepSecondsPerSend = %d\n"
+        "maxNoop             = %d\n"
+        "sleepSecondsPerNoop = %d\n"
+        "\n",
+        tp->name,
+        tp->host,
+        tp->port,
+        tp->ssl,
+        tp->auth,
+        tp->username,
+        tp->password,
+        tp->maxConn,
+        tp->maxSendPerConn,
+        tp->sleepSecondsPerSend,
+        tp->maxNoop,
+        tp->sleepSecondsPerNoop
+    );
+
+    return 1;
 }
 
-static void checkTpList(int testTp)
+static int checkTp(void *data, void *arg)
 {
-    int tpCount = 0;
-    tp_t *tp = tpList;
+    tp_t *tp = (tp_t *)data;
 
     #define REQUIRED(n) if (n == NULL) { TP_CONFIG_LOG(#n " required\n") exit(1); }
-    while (tp) {
-        REQUIRED(tp->host)
-        REQUIRED(tp->port)
-        REQUIRED(tp->ssl)
-        REQUIRED(tp->auth)
-        REQUIRED(tp->username)
-        REQUIRED(tp->password)
-        if (strcmp(tp->ssl, "") != 0 && strcmp(tp->ssl, "SSL") != 0) {
-            TP_CONFIG_LOG("unsupported ssl value: %s\n", tp->ssl)
-            exit(1);
-        }
-        if (strcmp(tp->auth, "LOGIN") != 0) {
-            TP_CONFIG_LOG("unsupported auth method: %s\n", tp->auth)
-            exit(1);
-        }
-        if (tp->maxConn < 1) {
-            TP_CONFIG_LOG("maxConn at least 1\n")
-            exit(1);
-        }
-        tp = tp->next;
-        tpCount++;
+    REQUIRED(tp->host)
+    REQUIRED(tp->port)
+    REQUIRED(tp->ssl)
+    REQUIRED(tp->auth)
+    REQUIRED(tp->username)
+    REQUIRED(tp->password)
+    if (strcmp(tp->ssl, "") != 0 && strcmp(tp->ssl, "SSL") != 0) {
+        TP_CONFIG_LOG("unsupported ssl value: %s\n", tp->ssl)
+        exit(1);
+    }
+    if (strcmp(tp->auth, "LOGIN") != 0) {
+        TP_CONFIG_LOG("unsupported auth method: %s\n", tp->auth)
+        exit(1);
+    }
+    if (tp->maxConn < 1) {
+        TP_CONFIG_LOG("maxConn at least 1\n")
+        exit(1);
     }
 
-    TP_CONFIG_LOG("load %d transport\n", tpCount)
-    printTpList();
-
-    if (testTp) {
-        // try connect to smtp server
-        int i;
-        for (i = 1; i <= tpCount; i++) {
-            TP_CONFIG_LOG("testing transport %s...(%d/%d)\n", "xxx", i, tpCount)
-            TP_CONFIG_LOG("ok\n")
-        }
-        exit(0);
-    }
+    return 1;
 }
 
 void loadTpConfig(int testTp)
 {
     TP_CONFIG_LOG("load transport config file: %s\n", TP_INI_FILE)
-
+    // load
     int n;
     if ((n = ini_parse(TP_INI_FILE, tpIniHandler, NULL)) != 0) {
         TP_CONFIG_LOG("ini_parse error(%d)\n", n);
         exit(1);
     }
-
-    checkTpList(testTp);
+    // check
+    dllistVisit(transports, checkTp, NULL);
+    TP_CONFIG_LOG("load %d transport\n", dllistCountNodes(transports))
+    // print
+    dllistVisit(transports, printTp, NULL);
+    // test
+    if (testTp) {
+        // try connect to smtp server
+        int i;
+        for (i = 1; i <= 2; i++) {
+            TP_CONFIG_LOG("testing transport %s...(%d/%d)\n", "xxx", i, 2)
+            TP_CONFIG_LOG("ok\n")
+        }
+        exit(0);
+    }
 }
 
 #define LOCK_TP(tp) pthread_mutex_lock(&tp->mtx);

@@ -36,17 +36,18 @@ void *append(void *arg)
     }
 }
 
-void printNode(void *data)
+int printNode(void *data, void *arg)
 {
     client_t *cl = (client_t *)data;
     printf("%d ", cl->id);
+    return 1;
 }
 
 void *print(void *arg)
 {
     dllist_t *dllist = (dllist_t *)arg;
     for (;;) {
-        dllistVisit(dllist, printNode);
+        dllistVisit(dllist, printNode, NULL);
         printf("\n");
         sleep(1);
     }
