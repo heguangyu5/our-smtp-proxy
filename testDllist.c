@@ -4,90 +4,51 @@
 #include <signal.h>
 #include <unistd.h>
 
-/**
- * 测试方法:
- *  一个thread一直往链表中追加node,
- *  另一个thread每秒打印一次链表
- *  main thread如果catch到INT信号,就删掉链表的head
- */
-
-typedef struct client {
+typedef struct tp {
     dllistNode_t *node;
     int id;
-} client_t;
+} tp_t;
 
-void cutHead(int signo) {}
-
-void *append(void *arg)
+int printTp(int idx, void *data, void *arg)
 {
-    dllist_t *dllist = (dllist_t *)arg;
-    client_t *cl;
-    int i = 0;
-
-    for (;;) {
-        i++;
-        cl = calloc(1, sizeof(client_t));
-        cl->id = i;
-        if (!dllistAppend(dllist, cl)) {
-            free(cl);
-            printf("dllistAppend timedout\n");
-        }
-        sleep(1);
-    }
-}
-
-int printNode(void *data, void *arg)
-{
-    client_t *cl = (client_t *)data;
-    printf("%d ", cl->id);
+    tp_t *tp  = (tp_t *)data;
+    printf("%d:%d ", idx, tp->id);
     return 1;
 }
 
-void *print(void *arg)
+int isCutHead;
+
+void cutHead(int signo)
 {
-    dllist_t *dllist = (dllist_t *)arg;
-    for (;;) {
-        dllistVisit(dllist, printNode, NULL);
-        printf("\n");
-        sleep(1);
-    }
+    isCutHead = 1;
 }
 
-int main(int argc, char *argv[])
+int main(void)
 {
-    int maxNodes, condTimeout;
-    pthread_t t1, t2;
-    dllist_t *dllist;
-    client_t *cl;
-
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s maxNodes condTimeout\n", argv[0]);
-        exit(1);
-    }
-
-    maxNodes    = atoi(argv[1]);
-    condTimeout = atoi(argv[2]);
+    dllist_t *dllist = dllistNew();
+    int i = 0;
+    tp_t *tp;
 
     signal(SIGINT, cutHead);
 
     printf("pid = %d\n", getpid());
 
-    dllist = dllistInit(maxNodes, condTimeout);
-    t1 = pthread_create(&t1, NULL, append, (void *)dllist);
-    t2 = pthread_create(&t2, NULL, print, (void *)dllist);
-
     for (;;) {
-        pause();
-        pthread_mutex_lock(&dllist->mtx);
-        cl = NULL;
-        if (dllist->head) {
-            cl = (client_t *)dllist->head->data;
+        i++;
+        tp = calloc(1, sizeof(tp_t));
+        tp->id = i;
+        dllistAppend(dllist, tp);
+        dllistVisit(dllist, printTp, NULL);
+        printf("\n");
+        if (isCutHead) {
+            if (dllist->nodesCount > 0) {
+                tp = (tp_t *)dllist->head->data;
+                dllistDelete(dllist, tp);
+                free(tp);
+            }
+            isCutHead = 0;
         }
-        pthread_mutex_unlock(&dllist->mtx);
-        if (cl) {
-            dllistDelete(dllist, cl);
-            free(cl);
-        }
+        sleep(2);
     }
 
     return 0;

@@ -1,8 +1,6 @@
 #ifndef __DLLIST_H
 #define __DLLIST_H
 
-#include <pthread.h>
-
 typedef struct dllistNode {
     void *data;
     struct dllistNode *prev;
@@ -16,18 +14,12 @@ typedef struct dllistNodeData {
 typedef struct dllist {
     dllistNode_t *head;
     dllistNode_t *tail;
-    int maxNodes;
     int nodesCount;
-    pthread_mutex_t mtx;
-    pthread_cond_t cond;
-    int condTimeout;
 } dllist_t;
 
-dllist_t *dllistInit(int maxNodes, int condTimeout);
-void dllistDestroy(dllist_t *dllist);
-int  dllistAppend(dllist_t *dllist, void *data);
+dllist_t *dllistNew();
+void dllistAppend(dllist_t *dllist, void *data);
 void dllistDelete(dllist_t *dllist, void *data);
-void *dllistVisit(dllist_t *dllist, int (*nodeHandler)(void *data, void *arg), void *arg);
-int  dllistCountNodes(dllist_t *dllist);
+void *dllistVisit(dllist_t *dllist, int (*nodeHandler)(int idx, void *data, void *arg), void *arg);
 
 #endif

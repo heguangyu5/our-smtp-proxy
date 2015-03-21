@@ -1,50 +1,14 @@
 #include "dllist.h"
 #include <stdlib.h>
-#include <errno.h>
-#include <time.h>
 
-dllist_t *dllistInit(int maxNodes, int condTimeout)
+dllist_t *dllistNew()
 {
     dllist_t *dllist = calloc(1, sizeof(dllist_t));
-    dllist->maxNodes = maxNodes;
-    pthread_mutex_init(&dllist->mtx, NULL);
-    if (maxNodes) {
-        dllist->condTimeout = condTimeout;
-        pthread_condattr_t attr;
-        pthread_condattr_init(&attr);
-        pthread_condattr_setclock(&attr, CLOCK_MONOTONIC);
-        pthread_cond_init(&dllist->cond, &attr);
-        pthread_condattr_destroy(&attr);
-    }
     return dllist;
 }
 
-void dllistDestroy(dllist_t *dllist)
+void dllistAppend(dllist_t *dllist, void *data)
 {
-    pthread_mutex_destroy(&dllist->mtx);
-    if (dllist->maxNodes) {
-        pthread_cond_destroy(&dllist->cond);
-    }
-    free(dllist);
-}
-
-int dllistAppend(dllist_t *dllist, void *data)
-{
-    struct timespec to;
-    clock_gettime(CLOCK_MONOTONIC, &to);
-    to.tv_sec += dllist->condTimeout;
-
-    pthread_mutex_lock(&dllist->mtx);
-
-    if (dllist->maxNodes) {
-        while (dllist->nodesCount == dllist->maxNodes) {
-            if (pthread_cond_timedwait(&dllist->cond, &dllist->mtx, &to) == ETIMEDOUT) {
-                pthread_mutex_unlock(&dllist->mtx);
-                return 0;
-            }
-        }
-    }
-
     dllistNode_t *node = calloc(1, sizeof(dllistNode_t));
     node->data = data;
     ((dllistNodeData_t *)data)->node = node;
@@ -60,10 +24,6 @@ int dllistAppend(dllist_t *dllist, void *data)
         dllist->tail = node;
     }
     dllist->nodesCount++;
-
-    pthread_mutex_unlock(&dllist->mtx);
-
-    return 1;
 }
 
 void dllistDelete(dllist_t *dllist, void *data)
@@ -79,8 +39,6 @@ void dllistDelete(dllist_t *dllist, void *data)
 
     node->data = NULL;
     ((dllistNodeData_t *)data)->node = NULL;
-
-    pthread_mutex_lock(&dllist->mtx);
 
     if (node == dllist->head) { // head
         if (dllist->head->next) {
@@ -101,45 +59,24 @@ void dllistDelete(dllist_t *dllist, void *data)
         node->next = NULL;
     }
     dllist->nodesCount--;
-
-    pthread_mutex_unlock(&dllist->mtx);
-
-    if (dllist->maxNodes) {
-        pthread_cond_signal(&dllist->cond);
-    }
-
     free(node);
 }
 
-void *dllistVisit(dllist_t *dllist, int (*nodeHandler)(void *data, void *arg), void *arg)
+void *dllistVisit(dllist_t *dllist, int (*nodeHandler)(int idx, void *data, void *arg), void *arg)
 {
     dllistNode_t *node;
-
-    pthread_mutex_lock(&dllist->mtx);
+    int idx = 0;
 
     node = dllist->head;
     while (node) {
-        if (!nodeHandler(node->data, arg)) {
+        if (!nodeHandler(idx++, node->data, arg)) {
             break;
         }
         node = node->next;
     }
 
-    pthread_mutex_unlock(&dllist->mtx);
-
     if (node) {
         return node->data;
     }
     return NULL;
-}
-
-int dllistCountNodes(dllist_t *dllist)
-{
-    int count;
-
-    pthread_mutex_lock(&dllist->mtx);
-    count = dllist->nodesCount;
-    pthread_mutex_unlock(&dllist->mtx);
-
-    return count;
 }
