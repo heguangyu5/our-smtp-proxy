@@ -7,7 +7,7 @@ dllist_t *dllistNew()
     return dllist;
 }
 
-static void dllistAppendNode(dllist_t *dllist, dllistNode_t *node)
+void dllistAppendNode(dllist_t *dllist, dllistNode_t *node)
 {
     if (dllist->tail == NULL) {
         node->prev = NULL;
@@ -22,7 +22,7 @@ static void dllistAppendNode(dllist_t *dllist, dllistNode_t *node)
     dllist->count++;
 }
 
-static void dllistDeleteNode(dllist_t *dllist, dllistNode_t *node)
+void dllistDeleteNode(dllist_t *dllist, dllistNode_t *node)
 {
     if (node == dllist->head) { // head
         if (dllist->head->next) {

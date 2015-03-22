@@ -23,6 +23,7 @@
 dllist_t *transports;
 pthread_dllist_t *clients;
 int quit;
+int reload;
 FILE *logFile; // stdout OR LOG_FILE
 
 static int setup()
@@ -121,6 +122,14 @@ static void mainLoop(int sockfd)
         if (quit) {
             break;
         }
+        if (reload) {
+            MAIN_THREAD_LOG("=====RELOAD=====\n");
+            cleanup();
+            loadTpConfig(0);
+            MAIN_THREAD_LOG("=====RELOAD DONE=====\n");
+            reload = 0;
+            continue;
+        }
 
         cl = newCl(fd);
         if (cl == NULL) {
@@ -132,10 +141,15 @@ static void mainLoop(int sockfd)
     }
 
     // cleanup
-    MAIN_THREAD_LOG("quit\n");
+    MAIN_THREAD_LOG("QUIT\n");
     cleanup();
     pthread_dllistDestroy(clients);
     free(transports);
+}
+
+static void setReloadFlag(int signo)
+{
+    reload = 1;
 }
 
 static void onQuit(int signo)
@@ -181,9 +195,11 @@ int main(int argc, char *argv[])
     transports = dllistNew();
     loadTpConfig(testTp);
 
+    signal(SIGHUP, setReloadFlag);
     signal(SIGINT, onQuit);
     signal(SIGTERM, onQuit);
 
+    siginterrupt(SIGHUP, 1);
     siginterrupt(SIGINT, 1);
     siginterrupt(SIGTERM, 1);
 

@@ -20,6 +20,8 @@ typedef struct dllist {
 dllist_t *dllistNew();
 void dllistAppend(dllist_t *dllist, void *data);
 void dllistDelete(dllist_t *dllist, void *data);
+void dllistAppendNode(dllist_t *dllist, dllistNode_t *node);
+void dllistDeleteNode(dllist_t *dllist, dllistNode_t *node);
 void dllistMvNode(dllist_t *a, dllistNode_t *aNode, dllist_t *b);
 void *dllistVisit(dllist_t *dllist, int (*nodeHandler)(int idx, void *data, void *arg), void *arg);
 

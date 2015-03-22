@@ -363,18 +363,6 @@ static int setEndFlag(int idx, void *data, void *arg)
     return 1;
 }
 
-static int endIdleConn(int idx, void *data, void *arg)
-{
-    tpConn_t *conn = (tpConn_t *)data;
-
-    close(conn->sockfd);
-    dllistDelete(conn->tp->idleConns, conn);
-    pthread_cond_destroy(&conn->cond);
-    free(conn);
-
-    return 1;
-}
-
 static int abortTpConns(int idx, void *data, void *arg)
 {
     tp_t *tp = (tp_t *)data;
@@ -382,9 +370,9 @@ static int abortTpConns(int idx, void *data, void *arg)
     pthread_mutex_lock(&tp->mtx);
 
     dllistVisit(tp->noopConns, setEndFlag, NULL);
-    dllistVisit(tp->idleConns, endIdleConn, NULL);
+    dllistVisit(tp->idleConns, setEndFlag, NULL);
 
-    while (tp->noopConns->count) {
+    while (tp->noopConns->count + tp->idleConns->count > 0) {
         pthread_cond_wait(&tp->endCond, &tp->mtx);
     }
 
@@ -423,5 +411,13 @@ static int freeTp(int idx, void *data, void *arg)
 
 void freeTransports()
 {
+    dllistNode_t *node;
+
     dllistVisit(transports, freeTp, NULL);
+
+    while (transports->head) {
+        node = transports->head;
+        dllistDeleteNode(transports, node);
+        free(node);
+    }
 }
