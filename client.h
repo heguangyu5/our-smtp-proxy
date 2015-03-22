@@ -2,10 +2,10 @@
 #define __CLIENT_H
 
 #include <pthread.h>
-#include "dllist.h"
+#include "pthread_dllist.h"
 
 typedef struct cl {
-    dllistNode_t *node;
+    pthread_dllistNode_t *node;
     int fd;
     pthread_t tid;
 } cl_t;

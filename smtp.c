@@ -264,8 +264,7 @@ int smtpNOOP(int sockfd)
     return (smtpWrite(sockfd, "NOOP\r\n", err, 1024) && smtpExpect(sockfd, "250", 300, err, 1024));
 }
 
-int smtpQUIT(int sockfd)
+int smtpQUIT(int sockfd, char *err, size_t errlen)
 {
-    char err[1024];
-    return (smtpWrite(sockfd, "QUIT\r\n", err, 1024) && smtpExpect(sockfd, "221", 300, err, 1024));
+    return (smtpWrite(sockfd, "QUIT\r\n", err, errlen) && smtpExpect(sockfd, "221", 300, err, errlen));
 }

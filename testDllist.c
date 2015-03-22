@@ -17,17 +17,21 @@ int printTp(int idx, void *data, void *arg)
 }
 
 int isCutHead;
+int cutCount;
 
 void cutHead(int signo)
 {
     isCutHead = 1;
+    cutCount++;
 }
 
 int main(void)
 {
     dllist_t *dllist = dllistNew();
+    dllist_t *dllistDeleted = dllistNew();
     int i = 0;
     tp_t *tp;
+    dllistNode_t *head;
 
     signal(SIGINT, cutHead);
 
@@ -38,13 +42,19 @@ int main(void)
         tp = calloc(1, sizeof(tp_t));
         tp->id = i;
         dllistAppend(dllist, tp);
+        printf("dllist: ");
         dllistVisit(dllist, printTp, NULL);
         printf("\n");
+        printf("delete: ");
+        dllistVisit(dllistDeleted, printTp, NULL);
+        printf("\n");
         if (isCutHead) {
-            if (dllist->nodesCount > 0) {
-                tp = (tp_t *)dllist->head->data;
-                dllistDelete(dllist, tp);
-                free(tp);
+            head = dllist->head;
+            if (cutCount % 2 == 0) {
+                dllistMvNode(dllist, head, dllistDeleted);
+            } else {
+                dllistDelete(dllist, head->data);
+                free(head->data);
             }
             isCutHead = 0;
         }

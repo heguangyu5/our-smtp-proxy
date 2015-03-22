@@ -28,7 +28,7 @@ void pthread_dllistDestroy(pthread_dllist_t *dllist)
     free(dllist);
 }
 
-int pthread_dllistAppend(pthread_dllist_t *dllist, void *data)
+int pthread_dllistAppend(pthread_dllist_t *dllist, void *data, int (*preAppend)(void *data))
 {
     struct timespec to;
     clock_gettime(CLOCK_MONOTONIC, &to);
@@ -37,12 +37,17 @@ int pthread_dllistAppend(pthread_dllist_t *dllist, void *data)
     pthread_mutex_lock(&dllist->mtx);
 
     if (dllist->maxNodes) {
-        while (dllist->nodesCount == dllist->maxNodes) {
+        while (dllist->count == dllist->maxNodes) {
             if (pthread_cond_timedwait(&dllist->cond, &dllist->mtx, &to) == ETIMEDOUT) {
                 pthread_mutex_unlock(&dllist->mtx);
                 return 0;
             }
         }
+    }
+
+    if (preAppend != NULL && !preAppend(data)) {
+        pthread_mutex_unlock(&dllist->mtx);
+        return 0;
     }
 
     pthread_dllistNode_t *node = calloc(1, sizeof(pthread_dllistNode_t));
@@ -59,7 +64,7 @@ int pthread_dllistAppend(pthread_dllist_t *dllist, void *data)
         dllist->tail->next = node;
         dllist->tail = node;
     }
-    dllist->nodesCount++;
+    dllist->count++;
 
     pthread_mutex_unlock(&dllist->mtx);
 
@@ -100,7 +105,7 @@ void pthread_dllistDelete(pthread_dllist_t *dllist, void *data)
         node->prev = NULL;
         node->next = NULL;
     }
-    dllist->nodesCount--;
+    dllist->count--;
 
     pthread_mutex_unlock(&dllist->mtx);
 
@@ -139,7 +144,7 @@ int pthread_dllistCountNodes(pthread_dllist_t *dllist)
     int count;
 
     pthread_mutex_lock(&dllist->mtx);
-    count = dllist->nodesCount;
+    count = dllist->count;
     pthread_mutex_unlock(&dllist->mtx);
 
     return count;

@@ -9,45 +9,36 @@
 #include <string.h>
 #include <errno.h>
 
-extern dllist_t *clients;
 extern dllist_t *transports;
+extern pthread_dllist_t *clients;
 
 cl_t *newCl(int fd)
 {
     cl_t *cl = calloc(1, sizeof(cl_t));
     cl->fd = fd;
-    if (!dllistAppend(clients, cl)) {
+    if (!pthread_dllistAppend(clients, cl, NULL)) {
         free(cl);
         return NULL;
     }
     return cl;
 }
 
-static void freeCl(void *arg)
+static int abortCl(int idx, void *data, void *arg)
 {
-    cl_t *cl = (cl_t *)arg;
-    close(cl->fd);
-    dllistDelete(clients, cl);
-    free(cl);
-}
-
-static void abortCl(void *cl)
-{
-    pthread_cancel(((cl_t *)cl)->tid);
+    cl_t *cl = (cl_t *)data;
+    pthread_cancel(cl->tid);
+    return 1;
 }
 
 void abortClients()
 {
-    MAIN_THREAD_LOG("abort clients ...\n")
-    dllistVisit(clients, abortCl, NULL);
+    pthread_dllistVisit(clients, abortCl, NULL);
 
     pthread_mutex_lock(&clients->mtx);
-    while (clients->nodesCount > 0) {
+    while (clients->count > 0) {
         pthread_cond_wait(&clients->cond, &clients->mtx);
     }
     pthread_mutex_unlock(&clients->mtx);
-
-    MAIN_THREAD_LOG("all clients aborted\n");
 }
 
 static int prepareSendMail(char *msg, char **from, rcpt_t **toList, char **data, char *err, size_t errlen)
@@ -112,6 +103,19 @@ static void sendMail(char *msg, char *res, size_t reslen)
     freeToList(toList);
 }
 
+static void freeBuf(void *arg)
+{
+    free(arg);
+}
+
+static void freeCl(void *arg)
+{
+    cl_t *cl = (cl_t *)arg;
+    close(cl->fd);
+    pthread_dllistDelete(clients, cl);
+    free(cl);
+}
+
 void *handleClient(void *arg)
 {
     cl_t *cl = (cl_t *)arg;
@@ -136,29 +140,40 @@ void *handleClient(void *arg)
     size_t reslen = 1024;
 
     pthread_detach(pthread_self());
-    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
 
     while (1) {
+        pthread_cleanup_push(freeCl, cl);
+        pthread_cleanup_push(freeBuf, buf);
+
         r = poll(fds, 1, 3600 * 24 * 1000);
         if (r == 0) { // timeout
-            free(buf);
             break;
         }
         if (r < 0) {
             char error[1024];
             strerror_r(errno, error, 1024);
             CLIENT_THREAD_LOG("clinet(socket %d) poll error: %s", cl->fd, error)
-            free(buf);
             break;
         }
+
+        pthread_cleanup_pop(0);
+        pthread_cleanup_pop(0);
+
         if (fds[0].revents & POLLIN) {
+            pthread_cleanup_push(freeCl, cl);
+            pthread_cleanup_push(freeBuf, buf);
+
             n = read(cl->fd, ptr, ptrlen);
             if (n <= 0) {
-                free(buf);
                 break;
             }
+
+            pthread_cleanup_pop(0);
+            pthread_cleanup_pop(0);
+
             msglen += n;
             if (msglen > 5 && strcmp(ptr + n - 5, "\r\n.\r\n") == 0) {
+                pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
                 if (buflen == msglen) {
                     buf = realloc(buf, buflen + 1);
                     buf[buflen] = '\0';
@@ -170,17 +185,11 @@ void *handleClient(void *arg)
                     char error[1024];
                     strerror_r(errno, error, 1024);
                     CLIENT_THREAD_LOG("response client(socket %d) '%s' error: %s\n", cl->fd, res, error)
-                    free(buf);
                     break;
                 }
-                free(buf);
-
-                pthread_cleanup_push(freeCl, cl);
                 pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-                pthread_testcancel();
-                pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-                pthread_cleanup_pop(0);
 
+                free(buf);
                 buf    = calloc(1, blksize);
                 ptr    = buf;
                 buflen = blksize;
@@ -200,9 +209,8 @@ void *handleClient(void *arg)
         }
     }
 
-    freeCl(cl);
-
-    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    free(buf);
+    free(cl);
 
     return NULL;
 }

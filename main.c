@@ -21,9 +21,9 @@
 #define MAX_WAIT    10  // 超出最大连接数的连接最多等待几秒proxy就要给出响应
 
 dllist_t *transports;
-dllist_t *clients;
-int      quit;
-FILE     *logFile; // // stdout OR LOG_FILE
+pthread_dllist_t *clients;
+int quit;
+FILE *logFile; // stdout OR LOG_FILE
 
 static int setup()
 {
@@ -72,13 +72,26 @@ static int setup()
     return sockfd;
 }
 
+static void cleanup()
+{
+    MAIN_THREAD_LOG("abort clients\n");
+    abortClients();
+    MAIN_THREAD_LOG("done\n");
+    MAIN_THREAD_LOG("abort transports conns\n")
+    abortTransportsConns();
+    MAIN_THREAD_LOG("done\n");
+    MAIN_THREAD_LOG("free transports\n");
+    freeTransports();
+    MAIN_THREAD_LOG("done\n");
+}
+
 static void mainLoop(int sockfd)
 {
     int fd;
     char buf[1024];
     cl_t *cl;
 
-    clients = dllistInit(MAX_CLIENTS, MAX_WAIT);
+    clients = pthread_dllistInit(MAX_CLIENTS, MAX_WAIT);
 
     mylog("our-smtp-proxy started\n");
     mylog("accepting connections\n");
@@ -119,11 +132,10 @@ static void mainLoop(int sockfd)
     }
 
     // cleanup
-    mylog("quit\n");
-    mylog("cleaning up\n");
-    abortClients();
-    abortTpConns();
-    freeTpList();
+    MAIN_THREAD_LOG("quit\n");
+    cleanup();
+    pthread_dllistDestroy(clients);
+    free(transports);
 }
 
 static void onQuit(int signo)
@@ -166,7 +178,7 @@ int main(int argc, char *argv[])
     }
 
     // exit 1 if failed
-    transports = dllistInit(0, 0);
+    transports = dllistNew();
     loadTpConfig(testTp);
 
     signal(SIGINT, onQuit);

@@ -28,7 +28,7 @@ void *append(void *arg)
         i++;
         cl = calloc(1, sizeof(client_t));
         cl->id = i;
-        if (!pthread_dllistAppend(dllist, cl)) {
+        if (!pthread_dllistAppend(dllist, cl, NULL)) {
             free(cl);
             printf("dllistAppend timedout\n");
         }

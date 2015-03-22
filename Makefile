@@ -1,7 +1,7 @@
-all: main test-smtp test-pthread-dllist
+all: our-smtp-proxy test-smtp test-pthread-dllist test-dllist
 
-main: ini.o pthread_dllist.o log.o rcpt.o smtp.o main.o transport.o client.o
-	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o our-smtp-proxy ini.o pthread_dllist.o log.o rcpt.o smtp.o main.o transport.o client.o
+our-smtp-proxy: ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o
+	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o our-smtp-proxy ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o
 
 test-smtp: testSmtp.o log.o rcpt.o smtp.o
 	gcc -Wall -o test-smtp testSmtp.o log.o rcpt.o smtp.o

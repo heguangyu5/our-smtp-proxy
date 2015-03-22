@@ -116,7 +116,7 @@ int main(int argc, char *argv[])
         printf("smtpNOOP error\n");
     }
     // quit
-    if (!smtpQUIT(sockfd)) {
+    if (!smtpQUIT(sockfd, err, errlen)) {
         printf("smtpQUIT error\n");
     }
 

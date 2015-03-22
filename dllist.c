@@ -7,12 +7,8 @@ dllist_t *dllistNew()
     return dllist;
 }
 
-void dllistAppend(dllist_t *dllist, void *data)
+static void dllistAppendNode(dllist_t *dllist, dllistNode_t *node)
 {
-    dllistNode_t *node = calloc(1, sizeof(dllistNode_t));
-    node->data = data;
-    ((dllistNodeData_t *)data)->node = node;
-
     if (dllist->tail == NULL) {
         node->prev = NULL;
         node->next = NULL;
@@ -23,23 +19,11 @@ void dllistAppend(dllist_t *dllist, void *data)
         dllist->tail->next = node;
         dllist->tail = node;
     }
-    dllist->nodesCount++;
+    dllist->count++;
 }
 
-void dllistDelete(dllist_t *dllist, void *data)
+static void dllistDeleteNode(dllist_t *dllist, dllistNode_t *node)
 {
-    if (data == NULL) {
-        return;
-    }
-
-    dllistNode_t *node = ((dllistNodeData_t *)data)->node;
-    if (node == NULL) {
-        return;
-    }
-
-    node->data = NULL;
-    ((dllistNodeData_t *)data)->node = NULL;
-
     if (node == dllist->head) { // head
         if (dllist->head->next) {
             dllist->head = dllist->head->next;
@@ -58,7 +42,39 @@ void dllistDelete(dllist_t *dllist, void *data)
         node->prev = NULL;
         node->next = NULL;
     }
-    dllist->nodesCount--;
+    dllist->count--;
+}
+
+void dllistMvNode(dllist_t *a, dllistNode_t *aNode, dllist_t *b)
+{
+    dllistDeleteNode(a, aNode);
+    dllistAppendNode(b, aNode);
+}
+
+void dllistAppend(dllist_t *dllist, void *data)
+{
+    dllistNode_t *node = calloc(1, sizeof(dllistNode_t));
+    node->data = data;
+    ((dllistNodeData_t *)data)->node = node;
+
+    dllistAppendNode(dllist, node);
+}
+
+void dllistDelete(dllist_t *dllist, void *data)
+{
+    if (data == NULL) {
+        return;
+    }
+
+    dllistNode_t *node = ((dllistNodeData_t *)data)->node;
+    if (node == NULL) {
+        return;
+    }
+
+    node->data = NULL;
+    ((dllistNodeData_t *)data)->node = NULL;
+
+    dllistDeleteNode(dllist, node);
     free(node);
 }
 
