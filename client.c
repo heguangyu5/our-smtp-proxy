@@ -147,13 +147,13 @@ void *handleClient(void *arg)
 
         r = poll(fds, 1, 3600 * 24 * 1000);
         if (r == 0) { // timeout
-            break;
+            pthread_exit(NULL);
         }
         if (r < 0) {
             char error[1024];
             strerror_r(errno, error, 1024);
             CLIENT_THREAD_LOG("clinet(socket %d) poll error: %s", cl->fd, error)
-            break;
+            pthread_exit(NULL);
         }
 
         pthread_cleanup_pop(0);
@@ -165,7 +165,7 @@ void *handleClient(void *arg)
 
             n = read(cl->fd, ptr, ptrlen);
             if (n <= 0) {
-                break;
+                pthread_exit(NULL);
             }
 
             pthread_cleanup_pop(0);
@@ -185,7 +185,9 @@ void *handleClient(void *arg)
                     char error[1024];
                     strerror_r(errno, error, 1024);
                     CLIENT_THREAD_LOG("response client(socket %d) '%s' error: %s\n", cl->fd, res, error)
-                    break;
+                    free(buf);
+                    freeCl(cl);
+                    pthread_exit(NULL);
                 }
                 pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
 
@@ -206,11 +208,10 @@ void *handleClient(void *arg)
                 ptr += n;
                 ptrlen -= n;
             }
+        } else {
+            free(buf);
+            freeCl(cl);
+            pthread_exit(NULL);
         }
     }
-
-    free(buf);
-    free(cl);
-
-    return NULL;
 }

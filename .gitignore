@@ -4,3 +4,4 @@ our-smtp-proxy
 test-smtp
 test-pthread-dllist
 test-dllist
+proxy.log
