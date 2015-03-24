@@ -61,5 +61,6 @@ void loadTpConfig(int testTp);
 int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *err, size_t errlen);
 void abortTransportsConns();
 void freeTransports();
+int reportTp(int idx, void *data, void *arg);
 
 #endif

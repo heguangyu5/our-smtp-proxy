@@ -1,7 +1,7 @@
 all: our-smtp-proxy test-smtp test-pthread-dllist test-dllist
 
-our-smtp-proxy: ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o
-	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o our-smtp-proxy ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o
+our-smtp-proxy: ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o report.o
+	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o our-smtp-proxy ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o report.o
 
 test-smtp: testSmtp.o log.o rcpt.o smtp.o
 	gcc -Wall -o test-smtp testSmtp.o log.o rcpt.o smtp.o
@@ -47,6 +47,9 @@ dllist.o: dllist.h dllist.c
 
 testDllist.o: testDllist.c
 	gcc -Wall -c testDllist.c
+
+report.o: report.c
+	gcc -Wall -c report.c
 
 clean:
 	rm *.o our-smtp-proxy test-smtp test-pthread-dllist test-dllist

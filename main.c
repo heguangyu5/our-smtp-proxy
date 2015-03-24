@@ -1,6 +1,7 @@
 #include "transport.h"
 #include "log.h"
 #include "client.h"
+#include "report.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -13,20 +14,25 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
-#define BIND_IP   "127.0.0.1"
-#define BIND_PORT "9925"
-#define BACKLOG   5
+#define BIND_IP         "127.0.0.1"
+#define BIND_PORT       "9925"
+#define MONITOR_PORT    "9926"
+#define BACKLOG         5
 
 #define MAX_CLIENTS 5   // proxy自身允许的最大连接数
 #define MAX_WAIT    10  // 超出最大连接数的连接最多等待几秒proxy就要给出响应
 
+int quit, reload;
+int proxyfd, monitorfd;
+
 dllist_t *transports;
+pthread_mutex_t transportsMtx = PTHREAD_MUTEX_INITIALIZER;
+
 pthread_dllist_t *clients;
-int quit;
-int reload;
+
 FILE *logFile; // stdout OR LOG_FILE
 
-static int setup()
+static int tcpListen(const char *host, const char *port)
 {
     int sockfd, r;
     struct addrinfo hints;
@@ -37,7 +43,7 @@ static int setup()
     hints.ai_family   = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
 
-    if ((r = getaddrinfo(BIND_IP, BIND_PORT, &hints, &result)) != 0) {
+    if ((r = getaddrinfo(host, port, &hints, &result)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(r));
         exit(2);
     }
@@ -59,7 +65,7 @@ static int setup()
     }
 
     if (rp == NULL) {
-        fprintf(stderr, "cannot create passive socket on %s:%s\n", BIND_IP, BIND_PORT);
+        fprintf(stderr, "cannot create passive socket on %s:%s\n", host, port);
         exit(2);
     }
 
@@ -86,36 +92,66 @@ static void cleanup()
     MAIN_THREAD_LOG("done\n");
 }
 
-static void mainLoop(int sockfd)
+static void *monitor(void *arg)
+{
+    int fd;
+    char buf[1024];
+    report_t report;
+
+    while (1) {
+        fd = accept(monitorfd, NULL, NULL);
+        if (fd == -1) {
+            switch(errno) {
+            case EINTR:
+            case EAGAIN:
+                break;
+            case ECONNABORTED:
+                MAIN_THREAD_LOG("proxy accept: ECONNABORTED")
+                break;
+            default:
+                strerror_r(errno, buf, 1024);
+                MAIN_THREAD_LOG("proxy accept: %s\n", buf)
+                close(monitorfd);
+                pthread_exit(NULL);
+            }
+        }
+        if (fd > -1) {
+            collectReport(&report);
+            write(fd, report.buf, report.len);
+            close(fd);
+        }
+    }
+}
+
+static void mainLoop()
 {
     int fd;
     char buf[1024];
     cl_t *cl;
+    pthread_t monitorThread;
 
     clients = pthread_dllistInit(MAX_CLIENTS, MAX_WAIT);
 
-    mylog("our-smtp-proxy started\n");
-    mylog("accepting connections\n");
+    MAIN_THREAD_LOG("start monitor thread\n");
+    pthread_create(&monitorThread, NULL, &monitor, NULL);
+    MAIN_THREAD_LOG("started\n");
+
+    MAIN_THREAD_LOG("our-smtp-proxy started, accepting connections\n");
 
     while (!quit) {
-        fd = accept(sockfd, NULL, NULL);
+        fd = accept(proxyfd, NULL, NULL);
         if (fd == -1) {
             switch(errno) {
-            case ECONNABORTED:
-                MAIN_THREAD_LOG("accept: ECONNABORTED")
-                break;
-            case EMFILE:
-                MAIN_THREAD_LOG("accept: EMFILE")
-                break;
-            case ENFILE:
-                MAIN_THREAD_LOG("accept: ENFILE")
-                break;
             case EINTR:
             case EAGAIN:
                 break;
+            case ECONNABORTED:
+                MAIN_THREAD_LOG("proxy accept: ECONNABORTED")
+                break;
             default:
                 strerror_r(errno, buf, 1024);
-                MAIN_THREAD_LOG("accept: %s\n", buf)
+                MAIN_THREAD_LOG("proxy accept: %s\n", buf)
+                quit = 1;
                 break;
             }
         }
@@ -131,17 +167,25 @@ static void mainLoop(int sockfd)
             continue;
         }
 
-        cl = newCl(fd);
-        if (cl == NULL) {
-            write(fd, "500 Too many connections\r\n", 28);
-            close(fd);
-        } else {
-            pthread_create(&cl->tid, NULL, &handleClient, cl);
+        if (fd > -1) {
+            cl = newCl(fd);
+            if (cl == NULL) {
+                write(fd, "500 Too many connections\r\n", 28);
+                close(fd);
+            } else {
+                pthread_create(&cl->tid, NULL, &handleClient, cl);
+            }
         }
     }
 
     // cleanup
     MAIN_THREAD_LOG("QUIT\n");
+    MAIN_THREAD_LOG("cancel monitor thread\n");
+    pthread_cancel(monitorThread);
+    pthread_join(monitorThread, NULL);
+    MAIN_THREAD_LOG("done\n");
+    close(proxyfd);
+    close(monitorfd);
     cleanup();
     pthread_dllistDestroy(clients);
     free(transports);
@@ -166,7 +210,6 @@ int main(int argc, char *argv[])
 {
     int daemonize = 1;
     int testTp = 0;
-    int listenfd;
     char c;
 
     opterr = 0;
@@ -203,14 +246,15 @@ int main(int argc, char *argv[])
     siginterrupt(SIGINT, 1);
     siginterrupt(SIGTERM, 1);
 
-    listenfd = setup();
+    proxyfd   = tcpListen(BIND_IP, BIND_PORT);
+    monitorfd = tcpListen(BIND_IP, MONITOR_PORT);
     if (!daemonize) {
-        mainLoop(listenfd);
+        mainLoop();
         return 0;
     }
 
     if (daemon(1, 0) == 0) {
-        mainLoop(listenfd);
+        mainLoop();
         return 0;
     }
     perror("daemon");

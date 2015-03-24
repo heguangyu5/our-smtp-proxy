@@ -3,12 +3,14 @@
 #include "ini.h"
 #include "log.h"
 #include "smtp.h"
+#include "report.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
 
 extern dllist_t *transports;
+extern pthread_mutex_t transportsMtx;
 
 int findTpByName(int idx, void *data, void *name)
 {
@@ -160,6 +162,8 @@ static int doTestTp(int idx, void *data, void *arg)
 
 void loadTpConfig(int testTp)
 {
+    pthread_mutex_lock(&transportsMtx);
+
     TP_CONFIG_LOG("load transport config file: %s\n", TP_INI_FILE)
     // load
     int n;
@@ -178,6 +182,8 @@ void loadTpConfig(int testTp)
         dllistVisit(transports, doTestTp, &transports->count);
         exit(0);
     }
+
+    pthread_mutex_unlock(&transportsMtx);
 }
 
 static void endConn(tpConn_t *conn)
@@ -420,4 +426,23 @@ void freeTransports()
         dllistDeleteNode(transports, node);
         free(node);
     }
+}
+
+int reportTp(int idx, void *data, void *arg)
+{
+    tp_t *tp = (tp_t *)data;
+    report_t *report = (report_t *)arg;
+    char buf[1024];
+
+    pthread_mutex_lock(&tp->mtx);
+
+    snprintf(buf, 1024, "%s: %d busy, %d idle, %d noop",
+             tp->name,
+             tp->busyConns->count,
+             tp->idleConns->count,
+             tp->noopConns->count);
+    addReportItem(report, buf);
+
+    pthread_mutex_unlock(&tp->mtx);
+    return 1;
 }
