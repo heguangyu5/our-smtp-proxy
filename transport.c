@@ -254,6 +254,8 @@ static tpConn_t *newConn(tp_t *tp, char *err, size_t errlen)
     int sockfd;
     tpConn_t *conn;
 
+    DPRINTF("tp %s new conn\n", tp->name)
+
     sockfd = tcpConnect(tp->host, tp->port);
     if (sockfd == -1) {
         TP_LOG("cannot connect to smtp server %s:%s\n", tp->host, tp->port)
@@ -337,6 +339,8 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
         }
     }
 
+    DPRINTF("conn(sockfd %d) send mail\n", conn->sockfd)
+
     if (smtpMAILFROM(conn->sockfd, tp->name, res, reslen)
         && smtpRCPTTO(conn->sockfd, toList, res, reslen)
         && smtpDATA(conn->sockfd, data, res, reslen)
@@ -353,6 +357,7 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
         pthread_mutex_lock(&tp->mtx);
         conn->status = TP_CONN_IDLE;
         dllistMvNode(tp->busyConns, conn->node, tp->idleConns);
+        tp->totalSend++;
         pthread_mutex_unlock(&tp->mtx);
         pthread_cond_signal(&tp->idleCond);
         pthread_cond_signal(&conn->cond);
@@ -436,11 +441,12 @@ int reportTp(int idx, void *data, void *arg)
 
     pthread_mutex_lock(&tp->mtx);
 
-    snprintf(buf, 1024, "%s: %d busy, %d idle, %d noop",
+    snprintf(buf, 1024, "%s: %d busy, %d idle, %d noop, total send: %d",
              tp->name,
              tp->busyConns->count,
              tp->idleConns->count,
-             tp->noopConns->count);
+             tp->noopConns->count,
+             tp->totalSend);
     addReportItem(report, buf);
 
     pthread_mutex_unlock(&tp->mtx);

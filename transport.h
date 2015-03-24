@@ -54,6 +54,8 @@ typedef struct tp {
     pthread_mutex_t mtx;
     pthread_cond_t idleCond;
     pthread_cond_t endCond;
+
+    int totalSend;
 } tp_t;
 
 int findTpByName(int idx, void *data, void *name);

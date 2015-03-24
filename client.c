@@ -141,6 +141,8 @@ void *handleClient(void *arg)
 
     pthread_detach(pthread_self());
 
+    DPRINTF("client(socket %d) connected\n", cl->fd)
+
     while (1) {
         pthread_cleanup_push(freeCl, cl);
         pthread_cleanup_push(freeBuf, buf);
@@ -179,6 +181,7 @@ void *handleClient(void *arg)
                     buf[buflen] = '\0';
                 }
                 // send email
+                DPRINTF("client(socket %d) send mail\n", cl->fd);
                 memset(res, 0, reslen);
                 sendMail(buf, res, reslen);
                 if (write(cl->fd, res, strlen(res)) == -1) {

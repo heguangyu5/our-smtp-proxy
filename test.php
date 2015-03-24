@@ -3,64 +3,10 @@
 require_once 'Zend/Loader/Autoloader.php';
 Zend_Loader_Autoloader::getInstance();
 
-class mySmtp extends Zend_Mail_Transport_Abstract
-{
-    protected $fp;
-
-    public function __construct($remoteSocket)
-    {
-        $this->fp = stream_socket_client($remoteSocket, $errno, $errstr, 30);
-        if (!$this->fp) {
-            throw new Zend_Mail_Transport_Exception("cannot connect to $remoteSocket, $errstr ($errno)");
-        }
-    }
-
-    protected function _sendMail()
-    {
-        $msg = array();
-        $msg[] = $this->_mail->getReturnPath();
-        foreach ($this->_mail->getRecipients() as $recipient) {
-            $msg[] = $recipient;
-        }
-        $msg[] = 'DATA';
-        $msg[] = $this->header;
-        $msg[] = str_replace("\n.\r\n", "\n..\r\n", $this->body);
-        $msg[] = ".\r\n";
-        $msg = implode("\r\n", $msg);
-
-        if (fwrite($this->fp, $msg) === false) {
-            throw new Zend_Mail_Transport_Exception('send msg error');
-        }
-
-        stream_set_timeout($this->fp, 600);
-        $response = fgets($this->fp, 1024);
-
-        $info = stream_get_meta_data($this->fp);
-        if (!empty($info['timed_out'])) {
-            throw new Zend_Mail_Transport_Exception('read response timed out');
-        }
-        if ($response === false) {
-            throw new Zend_Mail_Transport_Exception('read response error');
-        }
-        if (strncmp("250", $response, 3) != 0) {
-            throw new Zend_Mail_Transport_Exception(substr($response, 4));
-        }
-    }
-
-    // @see Zend_Mail_Transport_Smtp
-    protected function _prepareHeaders($headers)
-    {
-        if (!$this->_mail) {
-            throw new Zend_Mail_Transport_Exception('_prepareHeaders requires a registered Zend_Mail object');
-        }
-
-        unset($headers['Bcc']);
-        parent::_prepareHeaders($headers);
-    }
-}
+include __DIR__ . '/Transport.php';
 
 function sendMail($pid, $totalSend, $transport) {
-    $tp = new mySmtp('tcp://127.0.0.1:9925');
+    $tp = new mySmtpTransport('tcp://127.0.0.1:9925');
     $to = array(
         'employee004@126.com',
         'heguangyu5@sina.com',
@@ -84,6 +30,9 @@ function sendMail($pid, $totalSend, $transport) {
         $tp->send($mail);
 
         $totalSend--;
+
+        // 每发一封信,停0-5秒,模拟实际情况
+        sleep(mt_rand(0, 5));
     }
 }
 
@@ -111,6 +60,7 @@ for ($i = 0; $i < $totalChildren; $i++) {
     } else if ($pid == 0) {
         $pid = posix_getpid();
         echo "$pid started\n";
+        sleep(10); // wait for all children started
         try {
             sendMail($pid, $sendPerChild, $transport);
         } catch (Exception $e) {
