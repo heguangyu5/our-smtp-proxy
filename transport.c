@@ -186,24 +186,30 @@ void loadTpConfig(int testTp)
     pthread_mutex_unlock(&transportsMtx);
 }
 
-static void endConn(tpConn_t *conn)
+static void endConn(tpConn_t *conn, int hasTpLock)
 {
     tp_t *tp = conn->tp;
 
     close(conn->sockfd);
 
-    pthread_mutex_lock(&tp->mtx);
-    if (conn->status == TP_CONN_BUSY) {
-        dllistDelete(tp->busyConns, conn);
-    } else {
-        dllistDelete(tp->noopConns, conn);
+    if (!hasTpLock) {
+        pthread_mutex_lock(&tp->mtx);
     }
+    dllistDelete(tp->noopConns, conn);
     pthread_mutex_unlock(&tp->mtx);
 
     pthread_cond_destroy(&conn->cond);
     free(conn);
 
     pthread_cond_signal(&tp->endCond);
+    // 同时也要signal idleCond
+    // 试想这种情况: 
+    //    一个tp最多3个连接,在3个连接全都busy的情况下,后边的client就wait在idleCond上,
+    //    但是这三个连接发完信后,发现发信量够了,或者同时都出错了,要end,结果就是没连接可用了,然后超时
+    //    如果在wait的时候有新的连接进来,就会发现可以新建连接,然后它新建个连接,
+    //    发完信,idle,如果这些在90s内发生,就会恢复正常,但显然我们不能寄希望于这个新连接
+    //    所以,endConn时signal idleCond,后边做下检测,有idle就用idle,没idle就新建连接
+    pthread_cond_signal(&tp->idleCond);
 }
 
 static void *connNOOP(void *arg)
@@ -219,34 +225,35 @@ static void *connNOOP(void *arg)
         while (conn->status == TP_CONN_BUSY) {
             pthread_cond_wait(&conn->cond, &tp->mtx);
         }
-        dllistMvNode(tp->idleConns, conn->node, tp->noopConns);
-        pthread_mutex_unlock(&tp->mtx);
-        // check endFlag
-        if (conn->endFlag) {
-            endConn(conn);
-            break;
+        if (conn->status == TP_CONN_IDLE) {
+            conn->status = TP_CONN_NOOP;
+            dllistMvNode(tp->idleConns, conn->node, tp->noopConns);
         }
+        if (conn->endFlag) {
+            endConn(conn, 1);
+            pthread_exit(NULL);
+        }
+        pthread_mutex_unlock(&tp->mtx);
         // noop
+        DPRINTF("conn(sockfd %d) noop\n", conn->sockfd);
         conn->noopCount++;
         if (!smtpNOOP(conn->sockfd) || conn->noopCount == conn->tp->maxNoop) {
-            endConn(conn);
-            break;
-        }
-        // check endFlag
-        if (conn->endFlag) {
-            endConn(conn);
-            break;
+            endConn(conn, 0);
+            pthread_exit(NULL);
         }
         // noop -> idle
         pthread_mutex_lock(&tp->mtx);
+        if (conn->endFlag) {
+            endConn(conn, 1);
+            pthread_exit(NULL);
+        }
+        conn->status = TP_CONN_IDLE;
         dllistMvNode(tp->noopConns, conn->node, tp->idleConns);
         pthread_mutex_unlock(&tp->mtx);
         pthread_cond_signal(&tp->idleCond);
 
         sleep(conn->tp->sleepSecondsPerNoop);
     }
-
-    return NULL;
 }
 
 static tpConn_t *newConn(tp_t *tp, char *err, size_t errlen)
@@ -297,27 +304,37 @@ static tpConn_t *getAnIdleConn(tp_t *tp, int *isNewConn, char *err, size_t errle
         return conn;
     }
     // 如果连接数没超,就新建个连接
-    if ((tp->busyConns->count + tp->noopConns->count) < tp->maxConn) {
+    if (tp->busyConns->count + tp->noopConns->count < tp->maxConn) {
         conn = newConn(tp, err, errlen);
         *isNewConn = 1;
         pthread_mutex_unlock(&tp->mtx);
         return conn;
     }
     // 没有连接可用的情况下,等着
+    // wait两种情况: 1)真的有idleConn 2)有conn end了
+    // 90秒超时
     clock_gettime(CLOCK_MONOTONIC, &to);
-    to.tv_sec += 90; // 如果90s后还没有连接可用,返回超时信息
-    while (tp->idleConns->count == 0) {
+    to.tv_sec += 90;
+    while (tp->idleConns->count == 0 && tp->busyConns->count + tp->noopConns->count == tp->maxConn) {
         if (pthread_cond_timedwait(&tp->idleCond, &tp->mtx, &to) == ETIMEDOUT) {
             pthread_mutex_unlock(&tp->mtx);
-            TP_LOG("getANOOPConn timedout\n")
-            snprintf(err, errlen, "500 server too busy, try later\r\n");
+            TP_LOG("getAnIdleConn timedout\n")
+            snprintf(err, errlen, "500 proxy too busy, try later\r\n");
             return NULL;
         }
     }
-    node = tp->idleConns->head;
-    conn = (tpConn_t *)node->data;
-    conn->status = TP_CONN_BUSY;
-    dllistMvNode(tp->idleConns, node, tp->busyConns);
+    // has idle conn
+    if (tp->idleConns->count) {
+        node = tp->idleConns->head;
+        conn = (tpConn_t *)node->data;
+        conn->status = TP_CONN_BUSY;
+        dllistMvNode(tp->idleConns, node, tp->busyConns);
+        pthread_mutex_unlock(&tp->mtx);
+        return conn;
+    }
+    // can newConn
+    conn = newConn(tp, err, errlen);
+    *isNewConn = 1;
     pthread_mutex_unlock(&tp->mtx);
     return conn;
 }
@@ -325,6 +342,7 @@ static tpConn_t *getAnIdleConn(tp_t *tp, int *isNewConn, char *err, size_t errle
 int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
 {
     int isNewConn = 0;
+    int ret = 0;
     tpConn_t *conn = getAnIdleConn(tp, &isNewConn, res, reslen);
     if (conn == NULL) {
         return 0;
@@ -334,8 +352,8 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
 
     if (!isNewConn) {
         if (!smtpRSET(conn->sockfd, res, reslen)) {
-            endConn(conn);
-            return 0;
+            DPRINTF("conn(sockfd %d) RSET failed: %s\n", conn->sockfd, res)
+            goto end;
         }
     }
 
@@ -345,27 +363,39 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
         && smtpRCPTTO(conn->sockfd, toList, res, reslen)
         && smtpDATA(conn->sockfd, data, res, reslen)
     ) {
+        DPRINTF("conn(sockfd %d) send mail success\n", conn->sockfd)
         conn->sendCount++;
         if (conn->sendCount == tp->maxSendPerConn) {
-            endConn(conn);
-            return 1;
+            ret = 1;
+            goto end;
         }
         if (tp->sleepSecondsPerSend) {
             sleep(tp->sleepSecondsPerSend);
         }
         // busy -> idle
         pthread_mutex_lock(&tp->mtx);
+        tp->totalSend++;
         conn->status = TP_CONN_IDLE;
         dllistMvNode(tp->busyConns, conn->node, tp->idleConns);
-        tp->totalSend++;
         pthread_mutex_unlock(&tp->mtx);
         pthread_cond_signal(&tp->idleCond);
         pthread_cond_signal(&conn->cond);
         return 1;
     }
 
-    endConn(conn);
-    return 0;
+    DPRINTF("conn(sockfd %d) send mail failed: %s\n", conn->sockfd, res)
+
+end:
+    pthread_mutex_lock(&tp->mtx);
+    if (ret) {
+        tp->totalSend++;
+    }
+    conn->endFlag = 1;
+    conn->status  = TP_CONN_NOOP;
+    dllistMvNode(tp->busyConns, conn->node, tp->noopConns);
+    pthread_mutex_unlock(&tp->mtx);
+    pthread_cond_signal(&conn->cond);
+    return ret;
 }
 
 static int setEndFlag(int idx, void *data, void *arg)

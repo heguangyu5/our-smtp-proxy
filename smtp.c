@@ -14,7 +14,7 @@ static int smtpWrite(int sockfd, const char *data, char *err, int errlen)
     int n, len;
 
     len = strlen(data);
-    DPRINTF("smtpWrite(socket %d, len %d): %s", sockfd, len, data)
+    SMTP_DPRINTF("smtpWrite(socket %d, len %d): %s", sockfd, len, data)
     if ((n = send(sockfd, data, len, 0)) == -1) {
         TP_CONN_LOG("socket %d: send error\n", sockfd)
         snprintf(err, errlen, "500 send error\r\n");
@@ -71,7 +71,7 @@ static int smtpExpect(int sockfd, char *code, int timeout, char *err, int errlen
         return 0;
     }
 
-    DPRINTF("smtpExpect(socket %d, code %s): %s", sockfd, code, buf)
+    SMTP_DPRINTF("smtpExpect(socket %d, code %s): %s", sockfd, code, buf)
 
     buf[n-1] = '\0';
     if ((responseStart = strrchr(buf, '\n')) != NULL) {

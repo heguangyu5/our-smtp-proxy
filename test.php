@@ -16,7 +16,7 @@ function sendMail($pid, $totalSend, $transport) {
 
     while ($totalSend) {
         $subject = "测试our-smtp-proxy($pid, $totalSend)";
-        echo $subject, "\n";
+        echo $subject . "\n";
 
         $mail = new Zend_Mail('UTF-8');
         $mail->setFrom($transport);
@@ -64,13 +64,15 @@ for ($i = 0; $i < $totalChildren; $i++) {
         try {
             sendMail($pid, $sendPerChild, $transport);
         } catch (Exception $e) {
-            echo $pid, ': ', $e->getMessage(), "\n";
+            echo "$pid: " . $e->getMessage() . "\n";
         }
         exit;
     }
 }
 
-foreach ($children as $pid) {
-    pcntl_waitpid($pid, $status);
-    echo $pid, " end\n";
+$endChildren = 0;
+while ($endChildren < $totalChildren) {
+	$pid = pcntl_wait($status);
+	echo "$pid end\n";
+	$endChildren++;
 }

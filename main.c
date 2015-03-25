@@ -19,8 +19,8 @@
 #define MONITOR_PORT    "9926"
 #define BACKLOG         5
 
-#define MAX_CLIENTS 5   // proxy自身允许的最大连接数
-#define MAX_WAIT    10  // 超出最大连接数的连接最多等待几秒proxy就要给出响应
+#define MAX_CLIENTS 1000 // proxy自身允许的最大连接数
+#define MAX_WAIT    10   // 超出最大连接数的连接最多等待几秒proxy就要给出响应
 
 int quit, reload;
 int proxyfd, monitorfd;

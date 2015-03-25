@@ -10,6 +10,7 @@
 
 #define TP_CONN_BUSY 1
 #define TP_CONN_IDLE 2
+#define TP_CONN_NOOP 3
 
 typedef struct tpConn {
     dllistNode_t *node;
