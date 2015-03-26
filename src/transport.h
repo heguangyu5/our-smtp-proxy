@@ -60,6 +60,12 @@ typedef struct tp {
 
     int totalSend;
     int todaySend;
+
+    // 等着要发邮件的client数量
+    // 当getAnIdleConn需要等待时,就加1,取得conn后,减1
+    // noop线程取得lock后,如果发现有waiting的,就放弃lock
+    // 这样来减少noop,加快发信速度
+    int waiting;
 } tp_t;
 
 int findTpByName(int idx, void *data, void *name);

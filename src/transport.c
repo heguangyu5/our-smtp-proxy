@@ -224,7 +224,7 @@ static void *connNOOP(void *arg)
     while (1) {
         // idle -> noop
         pthread_mutex_lock(&tp->mtx);
-        while (conn->status == TP_CONN_BUSY) {
+        while (conn->status == TP_CONN_BUSY || (conn->status == TP_CONN_IDLE && tp->waiting > 0)) {
             pthread_cond_wait(&conn->cond, &tp->mtx);
         }
         if (conn->status == TP_CONN_IDLE) {
@@ -315,16 +315,19 @@ static tpConn_t *getAnIdleConn(tp_t *tp, int *isNewConn, char *err, size_t errle
     // 没有连接可用的情况下,等着
     // wait两种情况: 1)真的有idleConn 2)有conn end了
     // 90秒超时
+    tp->waiting++;
     clock_gettime(CLOCK_MONOTONIC, &to);
     to.tv_sec += 90;
     while (tp->idleConns->count == 0 && tp->busyConns->count + tp->noopConns->count == tp->maxConn) {
         if (pthread_cond_timedwait(&tp->idleCond, &tp->mtx, &to) == ETIMEDOUT) {
+            tp->waiting--;
             pthread_mutex_unlock(&tp->mtx);
             TP_LOG("getAnIdleConn timedout\n")
             snprintf(err, errlen, "500 proxy too busy, try later\r\n");
             return NULL;
         }
     }
+    tp->waiting--;
     // has idle conn
     if (tp->idleConns->count) {
         node = tp->idleConns->head;
