@@ -22,6 +22,8 @@
 #define MAX_CLIENTS 1000 // proxy自身允许的最大连接数
 #define MAX_WAIT    10   // 超出最大连接数的连接最多等待几秒proxy就要给出响应
 
+#define PID_FILE "our-smtp-proxy.pid"
+
 int quit, reload;
 int proxyfd, monitorfd;
 
@@ -131,6 +133,12 @@ static void mainLoop()
     pthread_t monitorThread;
     timer_t todaySendResetTimer;
 
+    // write pid file
+    FILE *fp;
+    fp = fopen(PID_FILE, "w");
+    fprintf(fp, "%d", getpid());
+    fclose(fp);
+
     clients = pthread_dllistInit(MAX_CLIENTS, MAX_WAIT);
 
     MAIN_THREAD_LOG("start monitor thread\n");
@@ -195,6 +203,8 @@ static void mainLoop()
     cleanup();
     pthread_dllistDestroy(clients);
     free(transports);
+    // unlink pid file
+    unlink(PID_FILE);
 }
 
 static void setReloadFlag(int signo)
