@@ -1,16 +1,16 @@
 all: our-smtp-proxy test-smtp test-pthread-dllist test-dllist
 
 our-smtp-proxy: ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o report.o
-	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o our-smtp-proxy ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o report.o
+	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o ../bin/our-smtp-proxy ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o report.o
 
 test-smtp: testSmtp.o log.o rcpt.o smtp.o
-	gcc -Wall -o test-smtp testSmtp.o log.o rcpt.o smtp.o
+	gcc -Wall -o ../bin/test-smtp testSmtp.o log.o rcpt.o smtp.o
 
 test-pthread-dllist: testPthreadDllist.o pthread_dllist.o
-	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o test-pthread-dllist testPthreadDllist.o pthread_dllist.o
+	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o ../bin/test-pthread-dllist testPthreadDllist.o pthread_dllist.o
 
 test-dllist: testDllist.o dllist.o
-	gcc -Wall -o test-dllist testDllist.o dllist.o
+	gcc -Wall -o ../bin/test-dllist testDllist.o dllist.o
 
 main.o: main.c
 	gcc -Wall -c main.c
@@ -52,4 +52,4 @@ report.o: report.c
 	gcc -Wall -c report.c
 
 clean:
-	rm *.o our-smtp-proxy test-smtp test-pthread-dllist test-dllist
+	rm *.o ../bin/our-smtp-proxy ../bin/test-smtp ../bin/test-pthread-dllist ../bin/test-dllist
