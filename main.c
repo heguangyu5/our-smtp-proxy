@@ -129,12 +129,17 @@ static void mainLoop()
     char buf[1024];
     cl_t *cl;
     pthread_t monitorThread;
+    timer_t todaySendResetTimer;
 
     clients = pthread_dllistInit(MAX_CLIENTS, MAX_WAIT);
 
     MAIN_THREAD_LOG("start monitor thread\n");
     pthread_create(&monitorThread, NULL, &monitor, NULL);
     MAIN_THREAD_LOG("started\n");
+
+    MAIN_THREAD_LOG("init todaySend reset timer\n");
+    initTodaySendResetTimer(&todaySendResetTimer);
+    MAIN_THREAD_LOG("done\n");
 
     MAIN_THREAD_LOG("our-smtp-proxy started, accepting connections\n");
 
@@ -184,6 +189,7 @@ static void mainLoop()
     pthread_cancel(monitorThread);
     pthread_join(monitorThread, NULL);
     MAIN_THREAD_LOG("done\n");
+    timer_delete(todaySendResetTimer);
     close(proxyfd);
     close(monitorfd);
     cleanup();

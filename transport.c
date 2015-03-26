@@ -8,6 +8,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
+#include <signal.h>
 
 extern dllist_t *transports;
 extern pthread_mutex_t transportsMtx;
@@ -375,6 +377,7 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
         // busy -> idle
         pthread_mutex_lock(&tp->mtx);
         tp->totalSend++;
+        tp->todaySend++;
         conn->status = TP_CONN_IDLE;
         dllistMvNode(tp->busyConns, conn->node, tp->idleConns);
         pthread_mutex_unlock(&tp->mtx);
@@ -389,6 +392,7 @@ end:
     pthread_mutex_lock(&tp->mtx);
     if (ret) {
         tp->totalSend++;
+        tp->todaySend++;
     }
     conn->endFlag = 1;
     conn->status  = TP_CONN_NOOP;
@@ -471,14 +475,58 @@ int reportTp(int idx, void *data, void *arg)
 
     pthread_mutex_lock(&tp->mtx);
 
-    snprintf(buf, 1024, "%s: %d busy, %d idle, %d noop, total send: %d",
+    snprintf(buf, 1024, "%s: %3d busy, %3d idle, %3d noop, total send: %10d, today send = %6d",
              tp->name,
              tp->busyConns->count,
              tp->idleConns->count,
              tp->noopConns->count,
-             tp->totalSend);
+             tp->totalSend,
+             tp->todaySend);
     addReportItem(report, buf);
 
     pthread_mutex_unlock(&tp->mtx);
     return 1;
+}
+
+static int resetTpTodaySendCounter(int idx, void *data, void *arg)
+{
+    tp_t *tp = (tp_t *)data;
+
+    pthread_mutex_lock(&tp->mtx);
+    tp->todaySend = 0;
+    pthread_mutex_unlock(&tp->mtx);
+
+    return 1;
+}
+
+static void resetTodaySendCounter(union sigval val)
+{
+    pthread_mutex_lock(&transportsMtx);
+    dllistVisit(transports, resetTpTodaySendCounter, NULL);
+    pthread_mutex_unlock(&transportsMtx);
+}
+
+void initTodaySendResetTimer(timer_t *timer)
+{
+    // 先计算出今天还剩下多少时间
+    // 一天86400s,取余得到今天已经过了多少秒(相对于UTC+00:00)
+    // 为了得到本机时区对应的时间,需要TZDIFF来调整
+    time_t now;
+    int todayLeft;
+    struct sigevent ev;
+    struct itimerspec its;
+
+    memset(&ev, 0, sizeof(ev));
+    ev.sigev_notify = SIGEV_THREAD;
+    ev.sigev_notify_function = resetTodaySendCounter;
+
+    now = time(NULL);
+    todayLeft = 86400 - (now % 86400 + TZDIFF);
+
+    memset(&its, 0, sizeof(its));
+    its.it_interval.tv_sec = 86400;
+    its.it_value.tv_sec = todayLeft;
+
+    timer_create(CLOCK_REALTIME, &ev, timer);
+    timer_settime(*timer, 0, &its, NULL);
 }

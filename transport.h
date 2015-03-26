@@ -12,6 +12,8 @@
 #define TP_CONN_IDLE 2
 #define TP_CONN_NOOP 3
 
+#define TZDIFF (8*3600)  // @see initTodaySendResetTimer
+
 typedef struct tpConn {
     dllistNode_t *node;
 
@@ -57,6 +59,7 @@ typedef struct tp {
     pthread_cond_t endCond;
 
     int totalSend;
+    int todaySend;
 } tp_t;
 
 int findTpByName(int idx, void *data, void *name);
@@ -65,5 +68,6 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *err, size_t errlen);
 void abortTransportsConns();
 void freeTransports();
 int reportTp(int idx, void *data, void *arg);
+void initTodaySendResetTimer(timer_t *timer);
 
 #endif
