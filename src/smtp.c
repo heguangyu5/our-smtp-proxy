@@ -9,19 +9,29 @@
 #include <netdb.h>
 #include <poll.h>
 
-static int smtpWrite(int sockfd, const char *data, char *err, int errlen)
+static int smtpWrite(tpConn_t *conn, const char *data, char *err, int errlen)
 {
     int n, len;
 
     len = strlen(data);
-    SMTP_DPRINTF("smtpWrite(socket %d, len %d): %s", sockfd, len, data)
-    if ((n = send(sockfd, data, len, 0)) == -1) {
-        TP_CONN_LOG("socket %d: send error\n", sockfd)
+    SMTP_DPRINTF("smtpWrite(socket %d, len %d): %s", conn->sockfd, len, data)
+
+    if (conn->ssl) {
+        if (SSL_write(conn->ssl, data, len) > 0) {
+            return 1;
+        }
+        TP_CONN_LOG("socket %d: SSL_write error\n", conn->sockfd)
+        snprintf(err, errlen, "500 SSL_write error\r\n");
+        return 0;
+    }
+
+    if ((n = send(conn->sockfd, data, len, 0)) == -1) {
+        TP_CONN_LOG("socket %d: send error\n", conn->sockfd)
         snprintf(err, errlen, "500 send error\r\n");
         return 0;
     }
     if (n < len) {
-        TP_CONN_LOG("socket %d: partial send\n", sockfd)
+        TP_CONN_LOG("socket %d: partial send\n", conn->sockfd)
         snprintf(err, errlen, "500 partial send\r\n");
         return 0;
     }
@@ -29,7 +39,7 @@ static int smtpWrite(int sockfd, const char *data, char *err, int errlen)
     return 1;
 }
 
-static int smtpExpect(int sockfd, char *code, int timeout, char *err, int errlen)
+static int smtpExpect(tpConn_t *conn, char *code, int timeout, char *err, int errlen)
 {
     int n;
     struct pollfd fds[1];
@@ -38,29 +48,40 @@ static int smtpExpect(int sockfd, char *code, int timeout, char *err, int errlen
 
     memset(buf, 0, 1024);
 
-    fds[0].fd      = sockfd;
+    fds[0].fd      = conn->sockfd;
     fds[0].events  = POLLIN;
     fds[0].revents = 0;
 
     if (poll(fds, 1, timeout * 1000) == -1) {
-        TP_CONN_LOG("socket %d: poll error\n", sockfd)
+        TP_CONN_LOG("socket %d: poll error\n", conn->sockfd)
         snprintf(err, errlen, "500 poll error\r\n");
         return 0;
     }
 
     if (!(fds[0].revents & POLLIN)) {
-        TP_CONN_LOG("socket %d: poll error, unexpected revents\n", sockfd)
+        TP_CONN_LOG("socket %d: poll error, unexpected revents\n", conn->sockfd)
         snprintf(err, errlen, "500 poll error, unexpected revents\r\n");
         return 0;
     }
 
-    if ((n = recv(sockfd, buf, 1023, 0)) == -1) {
-        TP_CONN_LOG("socket %d: recv error\n", sockfd)
-        snprintf(err, errlen, "500 recv error\r\n");
-        return 0;
+    if (conn->ssl) {
+        n = SSL_read(conn->ssl, buf, 1023);
+        if (n <= 0) {
+            TP_CONN_LOG("socket %d: SSL_read error\n", conn->sockfd)
+            snprintf(err, errlen, "500 SSL_read error\r\n");
+            return 0;
+        }
+    } else {
+        n = recv(conn->sockfd, buf, 1023, 0);
+        if (n == -1) {
+            TP_CONN_LOG("socket %d: recv error\n", conn->sockfd)
+            snprintf(err, errlen, "500 recv error\r\n");
+            return 0;
+        }
     }
+
     if (n < 4) {
-        TP_CONN_LOG("socket %d: smtp server error, invalid response, expect at least 4 bytes\n", sockfd)
+        TP_CONN_LOG("socket %d: smtp server error, invalid response, expect at least 4 bytes\n", conn->sockfd)
         snprintf(err, errlen, "500 smtp server error, invalid response\r\n");
         return 0;
     }
@@ -71,7 +92,7 @@ static int smtpExpect(int sockfd, char *code, int timeout, char *err, int errlen
         return 0;
     }
 
-    SMTP_DPRINTF("smtpExpect(socket %d, code %s): %s", sockfd, code, buf)
+    SMTP_DPRINTF("smtpExpect(socket %d, code %s): %s", conn->sockfd, code, buf)
 
     buf[n-1] = '\0';
     if ((responseStart = strrchr(buf, '\n')) != NULL) {
@@ -124,11 +145,23 @@ int tcpConnect(const char *host, const char *port)
     return sockfd;
 }
 
-int smtpEHLO(int sockfd, char *err, size_t errlen)
+int smtpEHLO(tpConn_t *conn, char *err, size_t errlen)
 {
-    return (smtpExpect(sockfd, "220", 300, err, errlen)
-            && smtpWrite(sockfd, "EHLO localhost\r\n", err, errlen)
-            && smtpExpect(sockfd, "250", 300, err, errlen));
+    if (conn->tp->ssl && strcmp(conn->tp->ssl, "SSL") == 0) {
+        conn->ctx = SSL_CTX_new(SSLv3_client_method());
+        SSL_CTX_set_mode(conn->ctx, SSL_MODE_AUTO_RETRY);
+        conn->ssl = SSL_new(conn->ctx);
+        SSL_set_fd(conn->ssl, conn->sockfd);
+        if (SSL_connect(conn->ssl) != 1) {
+            TP_CONN_LOG("socket %d: SSL_connect failed\n", conn->sockfd)
+            snprintf(err, errlen, "500 SSL_connect error\r\n");
+            return 0;
+        }
+    }
+
+    return (smtpExpect(conn, "220", 300, err, errlen)
+            && smtpWrite(conn, "EHLO localhost\r\n", err, errlen)
+            && smtpExpect(conn, "250", 300, err, errlen));
 }
 
 static const char enMap[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -193,26 +226,26 @@ char *base64_encode(const unsigned char *in, int inlen)
     return out;
 }
 
-int smtpAuth(int sockfd, const char *auth, const char *username, const char *password, char *err, size_t errlen)
+int smtpAuth(tpConn_t *conn, const char *auth, const char *username, const char *password, char *err, size_t errlen)
 {
     if (strcmp(auth, "LOGIN") != 0) {
         snprintf(err, errlen, "500 unsupported smtp auth method\r\n");
         return 0;
     }
 
-    if (!smtpWrite(sockfd, "AUTH LOGIN\r\n", err, errlen) || !smtpExpect(sockfd, "334", 60, err, errlen)) {
+    if (!smtpWrite(conn, "AUTH LOGIN\r\n", err, errlen) || !smtpExpect(conn, "334", 60, err, errlen)) {
         return 0;
     }
 
     char *u64 = base64_encode((unsigned char *)username, strlen(username));
-    if (!smtpWrite(sockfd, u64, err, errlen) || !smtpExpect(sockfd, "334", 60, err, errlen)) {
+    if (!smtpWrite(conn, u64, err, errlen) || !smtpExpect(conn, "334", 60, err, errlen)) {
         free(u64);
         return 0;
     }
     free(u64);
 
     char *p64 = base64_encode((unsigned char *)password, strlen(password));
-    if (!smtpWrite(sockfd, p64, err, errlen) || !smtpExpect(sockfd, "235", 60, err, errlen)) {
+    if (!smtpWrite(conn, p64, err, errlen) || !smtpExpect(conn, "235", 60, err, errlen)) {
         free(p64);
         return 0;
     }
@@ -221,20 +254,20 @@ int smtpAuth(int sockfd, const char *auth, const char *username, const char *pas
     return 1;
 }
 
-int smtpMAILFROM(int sockfd, const char *from, char *err, size_t errlen)
+int smtpMAILFROM(tpConn_t *conn, const char *from, char *err, size_t errlen)
 {
     char buf[1024];
     snprintf(buf, 1024, "MAIL FROM:<%s>\r\n", from);
-    return (smtpWrite(sockfd, buf, err, errlen) && smtpExpect(sockfd, "250", 300, err, errlen));
+    return (smtpWrite(conn, buf, err, errlen) && smtpExpect(conn, "250", 300, err, errlen));
 }
 
-int smtpRCPTTO(int sockfd, rcpt_t *toList, char *err, size_t errlen)
+int smtpRCPTTO(tpConn_t *conn, rcpt_t *toList, char *err, size_t errlen)
 {
     char buf[1024];
     rcpt_t *to = toList;
     while (to) {
         snprintf(buf, 1024, "RCPT TO:<%s>\r\n", to->email);
-        if (!smtpWrite(sockfd, buf, err, errlen) || !smtpExpect(sockfd, "250", 300, err, errlen)) {
+        if (!smtpWrite(conn, buf, err, errlen) || !smtpExpect(conn, "250", 300, err, errlen)) {
             if (strncmp("251", err, 3) != 0) {
                 return 0;
             }
@@ -244,27 +277,27 @@ int smtpRCPTTO(int sockfd, rcpt_t *toList, char *err, size_t errlen)
     return 1;
 }
 
-int smtpDATA(int sockfd, const char *data, char *err, size_t errlen)
+int smtpDATA(tpConn_t *conn, const char *data, char *err, size_t errlen)
 {
-    return (smtpWrite(sockfd, "DATA\r\n", err, errlen)
-            && smtpExpect(sockfd, "354", 120, err, errlen)
-            && smtpWrite(sockfd, data, err, errlen)
-            && smtpExpect(sockfd, "250", 600, err, errlen));
+    return (smtpWrite(conn, "DATA\r\n", err, errlen)
+            && smtpExpect(conn, "354", 120, err, errlen)
+            && smtpWrite(conn, data, err, errlen)
+            && smtpExpect(conn, "250", 600, err, errlen));
 }
 
-int smtpRSET(int sockfd, char *err, size_t errlen)
+int smtpRSET(tpConn_t *conn, char *err, size_t errlen)
 {
-    return (smtpWrite(sockfd, "RSET\r\n", err, errlen)
-            && (smtpExpect(sockfd, "250", 60, err, errlen) || strncmp("220", err, 3) == 0));
+    return (smtpWrite(conn, "RSET\r\n", err, errlen)
+            && (smtpExpect(conn, "250", 60, err, errlen) || strncmp("220", err, 3) == 0));
 }
 
-int smtpNOOP(int sockfd)
+int smtpNOOP(tpConn_t *conn)
 {
     char err[1024];
-    return (smtpWrite(sockfd, "NOOP\r\n", err, 1024) && smtpExpect(sockfd, "250", 300, err, 1024));
+    return (smtpWrite(conn, "NOOP\r\n", err, 1024) && smtpExpect(conn, "250", 300, err, 1024));
 }
 
-int smtpQUIT(int sockfd, char *err, size_t errlen)
+int smtpQUIT(tpConn_t *conn, char *err, size_t errlen)
 {
-    return (smtpWrite(sockfd, "QUIT\r\n", err, errlen) && smtpExpect(sockfd, "221", 300, err, errlen));
+    return (smtpWrite(conn, "QUIT\r\n", err, errlen) && smtpExpect(conn, "221", 300, err, errlen));
 }

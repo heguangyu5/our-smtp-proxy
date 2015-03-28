@@ -1,10 +1,10 @@
 all: our-smtp-proxy test-smtp test-pthread-dllist test-dllist
 
 our-smtp-proxy: ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o report.o
-	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o ../bin/our-smtp-proxy ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o report.o
+	gcc -Wall -Wl,--no-as-needed -o ../bin/our-smtp-proxy ini.o pthread_dllist.o dllist.o log.o rcpt.o smtp.o main.o transport.o client.o report.o -pthread -lrt -lssl
 
 test-smtp: testSmtp.o log.o rcpt.o smtp.o
-	gcc -Wall -o ../bin/test-smtp testSmtp.o log.o rcpt.o smtp.o
+	gcc -Wall -o ../bin/test-smtp testSmtp.o log.o rcpt.o smtp.o -lssl
 
 test-pthread-dllist: testPthreadDllist.o pthread_dllist.o
 	gcc -Wall -Wl,--no-as-needed -pthread -lrt -o ../bin/test-pthread-dllist testPthreadDllist.o pthread_dllist.o

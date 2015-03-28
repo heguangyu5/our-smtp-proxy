@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <pthread.h>
 #include "dllist.h"
+#include <openssl/ssl.h>
 
 #define TP_INI_FILE "transport.ini"
 
@@ -28,6 +29,9 @@ typedef struct tpConn {
     pthread_t tid;
 
     int endFlag;
+
+    SSL_CTX *ctx;
+    SSL *ssl;
 } tpConn_t;
 
 typedef struct tp {

@@ -141,6 +141,10 @@ static int doTestTp(int idx, void *data, void *arg)
     int sockfd;
     char err[1024];
     size_t errlen = 1024;
+    tpConn_t *conn;
+
+    conn = calloc(1, sizeof(tpConn_t));
+    conn->tp = tp;
 
     TP_CONFIG_LOG("testing transport %s...(%d/%d)\n", tp->name, (idx+1), total)
 
@@ -149,10 +153,16 @@ static int doTestTp(int idx, void *data, void *arg)
         exit(1);
     }
 
-    if (smtpEHLO(sockfd, err, errlen)
-        && smtpAuth(sockfd, tp->auth, tp->username, tp->password, err, errlen)
-        && smtpQUIT(sockfd, err, errlen)
+    conn->sockfd = sockfd;
+    if (smtpEHLO(conn, err, errlen)
+        && smtpAuth(conn, tp->auth, tp->username, tp->password, err, errlen)
+        && smtpQUIT(conn, err, errlen)
     ) {
+        if (conn->ssl) {
+            SSL_shutdown(conn->ssl);
+            SSL_free(conn->ssl);
+            SSL_CTX_free(conn->ctx);
+        }
         close(sockfd);
         TP_CONFIG_LOG("ok\n")
         return 1;
@@ -192,6 +202,11 @@ static void endConn(tpConn_t *conn, int hasTpLock)
 {
     tp_t *tp = conn->tp;
 
+    if (conn->ssl) {
+        SSL_shutdown(conn->ssl);
+        SSL_free(conn->ssl);
+        SSL_CTX_free(conn->ctx);
+    }
     close(conn->sockfd);
 
     if (!hasTpLock) {
@@ -239,7 +254,7 @@ static void *connNOOP(void *arg)
         // noop
         DPRINTF("conn(sockfd %d) noop\n", conn->sockfd);
         conn->noopCount++;
-        if (!smtpNOOP(conn->sockfd) || conn->noopCount == conn->tp->maxNoop) {
+        if (!smtpNOOP(conn) || conn->noopCount == conn->tp->maxNoop) {
             endConn(conn, 0);
             pthread_exit(NULL);
         }
@@ -263,21 +278,24 @@ static tpConn_t *newConn(tp_t *tp, char *err, size_t errlen)
     int sockfd;
     tpConn_t *conn;
 
+    conn = calloc(1, sizeof(tpConn_t));
+    conn->tp = tp;
+
     DPRINTF("tp %s new conn\n", tp->name)
 
     sockfd = tcpConnect(tp->host, tp->port);
     if (sockfd == -1) {
         TP_LOG("cannot connect to smtp server %s:%s\n", tp->host, tp->port)
         snprintf(err, errlen, "500 cannot connect to smtp server\r\n");
+        free(conn);
         return NULL;
     }
 
-    if (smtpEHLO(sockfd, err, errlen)
-        && smtpAuth(sockfd, tp->auth, tp->username, tp->password, err, errlen)
+    conn->sockfd = sockfd;
+
+    if (smtpEHLO(conn, err, errlen)
+        && smtpAuth(conn, tp->auth, tp->username, tp->password, err, errlen)
     ) {
-        conn = calloc(1, sizeof(tpConn_t));
-        conn->tp     = tp;
-        conn->sockfd = sockfd;
         conn->status = TP_CONN_BUSY;
         pthread_cond_init(&conn->cond, NULL);
         dllistAppend(tp->busyConns, conn);
@@ -285,6 +303,7 @@ static tpConn_t *newConn(tp_t *tp, char *err, size_t errlen)
         return conn;
     }
 
+    free(conn);
     close(sockfd);
     return NULL;
 }
@@ -356,7 +375,7 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
     conn->noopCount = 0;
 
     if (!isNewConn) {
-        if (!smtpRSET(conn->sockfd, res, reslen)) {
+        if (!smtpRSET(conn, res, reslen)) {
             DPRINTF("conn(sockfd %d) RSET failed: %s\n", conn->sockfd, res)
             goto end;
         }
@@ -364,9 +383,9 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
 
     DPRINTF("conn(sockfd %d) send mail\n", conn->sockfd)
 
-    if (smtpMAILFROM(conn->sockfd, tp->name, res, reslen)
-        && smtpRCPTTO(conn->sockfd, toList, res, reslen)
-        && smtpDATA(conn->sockfd, data, res, reslen)
+    if (smtpMAILFROM(conn, tp->name, res, reslen)
+        && smtpRCPTTO(conn, toList, res, reslen)
+        && smtpDATA(conn, data, res, reslen)
     ) {
         DPRINTF("conn(sockfd %d) send mail success\n", conn->sockfd)
         conn->sendCount++;
@@ -478,7 +497,7 @@ int reportTp(int idx, void *data, void *arg)
 
     pthread_mutex_lock(&tp->mtx);
 
-    snprintf(buf, 1024, "%s: %3d busy, %3d idle, %3d noop, total send: %10d, today send = %6d",
+    snprintf(buf, 1024, "%30s: %3d busy, %3d idle, %3d noop, total send: %10d, today send = %6d",
              tp->name,
              tp->busyConns->count,
              tp->idleConns->count,

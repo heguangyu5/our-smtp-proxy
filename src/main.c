@@ -250,6 +250,10 @@ int main(int argc, char *argv[])
         }
     }
 
+    // init SSL
+    SSL_load_error_strings();
+    SSL_library_init();
+
     // exit 1 if failed
     transports = dllistNew();
     loadTpConfig(testTp);

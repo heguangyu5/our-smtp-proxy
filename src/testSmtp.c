@@ -8,41 +8,53 @@ FILE *logFile;
 
 int main(int argc, char *argv[])
 {
-    char *host;
-    char *port;
-    char *username;
-    char *password;
+    tp_t *tp;
+    tpConn_t *conn;
+
     int  sockfd;
     char err[1024];
     size_t errlen = 1024;
 
-    if (argc != 5) {
-        printf("Usage: ./test-smtp host port username password\n");
+    if (argc < 5) {
+        printf("Usage: ./test-smtp host port username password [SSL/TLS]\n");
         exit(1);
     }
 
-    host     = argv[1];
-    port     = argv[2];
-    username = argv[3];
-    password = argv[4];
+    tp = calloc(1, sizeof(tp_t));
+    conn = calloc(1, sizeof(tpConn_t));
+
+    tp->host     = argv[1];
+    tp->port     = argv[2];
+    tp->username = argv[3];
+    tp->password = argv[4];
+    if (argc == 6) {
+        tp->ssl = argv[5];
+    }
+
+    // init SSL
+    SSL_load_error_strings();
+    SSL_library_init();
+
+    conn->tp = tp;
 
     logFile = stdout;
     // connect
-    if ((sockfd = tcpConnect(host, port)) == -1) {
+    if ((sockfd = tcpConnect(tp->host, tp->port)) == -1) {
         exit(1);
     }
+    conn->sockfd = sockfd;
     // ehlo
-    if (!smtpEHLO(sockfd, err, errlen)) {
+    if (!smtpEHLO(conn, err, errlen)) {
         printf("smtpEHLO: %s", err);
         exit(1);
     }
     // auth
-    if (!smtpAuth(sockfd, "LOGIN", username, password, err, errlen)) {
+    if (!smtpAuth(conn, "LOGIN", tp->username, tp->password, err, errlen)) {
         printf("smtpAuth: %s", err);
         exit(1);
     }
     // send first message
-    if (!smtpMAILFROM(sockfd, username, err, errlen)) {
+    if (!smtpMAILFROM(conn, tp->username, err, errlen)) {
         printf("smtpMAILFROM: %s", err);
         exit(1);
     }
@@ -50,7 +62,7 @@ int main(int argc, char *argv[])
     rcpt_t to;
     to.email = "employee003@126.com";
     to.next  = NULL;
-    if (!smtpRCPTTO(sockfd, &to, err, errlen)) {
+    if (!smtpRCPTTO(conn, &to, err, errlen)) {
         printf("smtpRCPTTO: %s", err);
         exit(1);
     }
@@ -64,22 +76,22 @@ int main(int argc, char *argv[])
 "\r\n"
 "RT. just test my smtp.\r\n"
 ".\r\n",
-            username,
+            tp->username,
             to.email
         );
-    if (!smtpDATA(sockfd, msg, err, errlen)) {
+    if (!smtpDATA(conn, msg, err, errlen)) {
         printf("smtpDATA: %s", err);
         exit(1);
     }
 
     // rset
-    if (!smtpRSET(sockfd, err, errlen)) {
+    if (!smtpRSET(conn, err, errlen)) {
         printf("smtpRSET: %s", err);
         exit(1);
     }
 
     // send second message
-    if (!smtpMAILFROM(sockfd, username, err, errlen)) {
+    if (!smtpMAILFROM(conn, tp->username, err, errlen)) {
         printf("smtpMAILFROM: %s", err);
         exit(1);
     }
@@ -89,7 +101,7 @@ int main(int argc, char *argv[])
     to1.next  = &to2;
     to2.email = "626996842@qq.com";
     to2.next  = NULL;
-    if (!smtpRCPTTO(sockfd, &to1, err, errlen)) {
+    if (!smtpRCPTTO(conn, &to1, err, errlen)) {
         printf("smtpRCPTTO: %s", err);
         exit(1);
     }
@@ -102,24 +114,29 @@ int main(int argc, char *argv[])
 "\r\n"
 "RT. just test my smtp.\r\n"
 ".\r\n",
-            username,
+            tp->username,
             to1.email,
             to2.email
         );
-    if (!smtpDATA(sockfd, msg, err, errlen)) {
+    if (!smtpDATA(conn, msg, err, errlen)) {
         printf("smtpDATA: %s", err);
         exit(1);
     }
 
     // noop
-    if (!smtpNOOP(sockfd)) {
+    if (!smtpNOOP(conn)) {
         printf("smtpNOOP error\n");
     }
     // quit
-    if (!smtpQUIT(sockfd, err, errlen)) {
+    if (!smtpQUIT(conn, err, errlen)) {
         printf("smtpQUIT error\n");
     }
 
+    if (conn->ssl) {
+        SSL_shutdown(conn->ssl);
+        SSL_free(conn->ssl);
+        SSL_CTX_free(conn->ctx);
+    }
     close(sockfd);
     return 0;
 }
