@@ -118,7 +118,10 @@ static int checkTp(int idx, void *data, void *arg)
     REQUIRED(tp->auth)
     REQUIRED(tp->username)
     REQUIRED(tp->password)
-    if (strcmp(tp->ssl, "") != 0 && strcmp(tp->ssl, "SSL") != 0) {
+    if (strcmp(tp->ssl, "") != 0
+        && strcmp(tp->ssl, "SSL") != 0
+        && strcmp(tp->ssl, "TLS") != 0
+    ) {
         TP_CONFIG_LOG("unsupported ssl value: %s\n", tp->ssl)
         exit(1);
     }

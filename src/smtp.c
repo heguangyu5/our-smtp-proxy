@@ -145,22 +145,45 @@ int tcpConnect(const char *host, const char *port)
     return sockfd;
 }
 
+static int smtpSSLConnect(tpConn_t *conn, const SSL_METHOD *method, char *err, size_t errlen)
+{
+    conn->ctx = SSL_CTX_new(method);
+    SSL_CTX_set_mode(conn->ctx, SSL_MODE_AUTO_RETRY);
+    conn->ssl = SSL_new(conn->ctx);
+    SSL_set_fd(conn->ssl, conn->sockfd);
+    if (SSL_connect(conn->ssl) != 1) {
+        TP_CONN_LOG("socket %d: SSL_connect failed\n", conn->sockfd)
+        snprintf(err, errlen, "500 SSL_connect error\r\n");
+        return 0;
+    }
+    return 1;
+}
+
 int smtpEHLO(tpConn_t *conn, char *err, size_t errlen)
 {
     if (conn->tp->ssl && strcmp(conn->tp->ssl, "SSL") == 0) {
-        conn->ctx = SSL_CTX_new(SSLv3_client_method());
-        SSL_CTX_set_mode(conn->ctx, SSL_MODE_AUTO_RETRY);
-        conn->ssl = SSL_new(conn->ctx);
-        SSL_set_fd(conn->ssl, conn->sockfd);
-        if (SSL_connect(conn->ssl) != 1) {
-            TP_CONN_LOG("socket %d: SSL_connect failed\n", conn->sockfd)
-            snprintf(err, errlen, "500 SSL_connect error\r\n");
+        if (!smtpSSLConnect(conn, SSLv3_client_method(), err, errlen)) {
             return 0;
         }
     }
 
-    return (smtpExpect(conn, "220", 300, err, errlen)
-            && smtpWrite(conn, "EHLO localhost\r\n", err, errlen)
+    if (!smtpExpect(conn, "220", 300, err, errlen)) {
+        return 0;
+    }
+
+    if (conn->tp->ssl && strcmp(conn->tp->ssl, "TLS") == 0) {
+        if (!smtpWrite(conn, "STARTTLS\r\n", err, errlen)) {
+            return 0;
+        }
+        if (!smtpExpect(conn, "220", 180, err, errlen)) {
+            return 0;
+        }
+        if (!smtpSSLConnect(conn, TLSv1_client_method(), err, errlen)) {
+            return 0;
+        }
+    }
+
+    return (smtpWrite(conn, "EHLO localhost\r\n", err, errlen)
             && smtpExpect(conn, "250", 300, err, errlen));
 }
 
