@@ -15,19 +15,37 @@ function sendMail($pid, $totalSend, $transport) {
     $count = count($to);
 
     while ($totalSend) {
-        $subject = "测试our-smtp-proxy($pid, $totalSend)";
-        echo $subject . "\n";
-
-        $mail = new Zend_Mail('UTF-8');
-        $mail->setFrom($transport);
+        $from = $transport;
+        $recipients = array();
         $c = mt_rand(1, $count);
         for ($i = 0; $i < $c; $i++) {
-            $mail->addTo($to[$i]);
+            $recipients[] = $to[$i];
         }
-        $mail->setSubject($subject);
-        $subject .= "\n";
-        $mail->setBodyText(str_repeat($subject, $totalSend));
-        $tp->send($mail);
+
+        $subject = "测试our-smtp-proxy($pid, $totalSend)";
+        $body = str_repeat($subject . "\n", $totalSend);
+        echo $subject . "\n";
+
+        if ($totalSend % 2 == 0) {
+            $mail = new Zend_Mail('UTF-8');
+            $mail->setFrom($from);
+            $mail->addTo($recipients);
+            $mail->setSubject($subject);
+            $mail->setBodyText($body);
+            $tp->send($mail);
+        } else {
+            $toHeader      = implode(',', $recipients);
+            $subjectHeader = imap_8bit($subject);
+            $rawHeader     = "From: $from
+To: $toHeader
+Subject: =?UTF-8?Q?$subjectHeader?=
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: quoted-printable
+Content-Disposition: inline
+MIME-Version: 1.0";
+            $rawBody = imap_8bit($body);
+            $tp->sendRawMail($from, $recipients, $rawHeader, $rawBody);
+        }
 
         $totalSend--;
 

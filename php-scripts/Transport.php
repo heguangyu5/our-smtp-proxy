@@ -12,16 +12,19 @@ class mySmtpTransport extends Zend_Mail_Transport_Abstract
         }
     }
 
-    protected function _sendMail()
+    public function sendRawMail($from, $to, $rawHeader, $rawBody)
     {
-        $msg = array();
-        $msg[] = $this->_mail->getReturnPath();
-        foreach ($this->_mail->getRecipients() as $recipient) {
-            $msg[] = $recipient;
+        $msg = array($from);
+        if (is_array($to)) {
+            foreach ($to as $recipient) {
+                $msg[] = $recipient;
+            }
+        } else {
+            $msg[] = $to;
         }
         $msg[] = 'DATA';
-        $msg[] = $this->header;
-        $msg[] = str_replace("\n.\r\n", "\n..\r\n", $this->body);
+        $msg[] = trim($rawHeader) . "\r\n";
+        $msg[] = trim(str_replace("\n.\r\n", "\n..\r\n", $rawBody)) . "\r\n";
         $msg[] = ".\r\n";
         $msg = implode("\r\n", $msg);
 
@@ -42,6 +45,16 @@ class mySmtpTransport extends Zend_Mail_Transport_Abstract
         if (strncmp("250", $response, 3) != 0) {
             throw new Zend_Mail_Transport_Exception(substr($response, 4));
         }
+    }
+
+    protected function _sendMail()
+    {
+        $this->sendRawMail(
+            $this->_mail->getReturnPath(),
+            $this->_mail->getRecipients(),
+            $this->header,
+            $this->body
+        );
     }
 
     // @see Zend_Mail_Transport_Smtp
