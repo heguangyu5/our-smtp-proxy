@@ -183,7 +183,7 @@ static void mainLoop()
         if (fd > -1) {
             cl = newCl(fd);
             if (cl == NULL) {
-                write(fd, "500 Too many connections\r\n", 28);
+                write(fd, "500 proxy: too many connections\r\n", 33);
                 close(fd);
             } else {
                 pthread_create(&cl->tid, NULL, &handleClient, cl);
