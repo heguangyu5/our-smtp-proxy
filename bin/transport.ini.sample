@@ -13,7 +13,7 @@ sleepSecondsPerNoop = 10
 
 [tpb@126.com]
 host                = smtp.126.com
-port                = 25
+port                = 465
 ssl                 = SSL
 auth                = LOGIN
 username            = tpb@126.com

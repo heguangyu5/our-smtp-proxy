@@ -229,7 +229,7 @@ static void endConn(tpConn_t *conn, int hasTpLock)
     //    如果在wait的时候有新的连接进来,就会发现可以新建连接,然后它新建个连接,
     //    发完信,idle,如果这些在90s内发生,就会恢复正常,但显然我们不能寄希望于这个新连接
     //    所以,endConn时signal idleCond,后边做下检测,有idle就用idle,没idle就新建连接
-    pthread_cond_signal(&tp->idleCond);
+    pthread_cond_broadcast(&tp->idleCond);
 }
 
 static void *connNOOP(void *arg)
@@ -270,7 +270,7 @@ static void *connNOOP(void *arg)
         conn->status = TP_CONN_IDLE;
         dllistMvNode(tp->noopConns, conn->node, tp->idleConns);
         pthread_mutex_unlock(&tp->mtx);
-        pthread_cond_signal(&tp->idleCond);
+        pthread_cond_broadcast(&tp->idleCond);
 
         sleep(conn->tp->sleepSecondsPerNoop);
     }
@@ -406,7 +406,7 @@ int tpSendMail(tp_t *tp, rcpt_t *toList, char *data, char *res, size_t reslen)
         conn->status = TP_CONN_IDLE;
         dllistMvNode(tp->busyConns, conn->node, tp->idleConns);
         pthread_mutex_unlock(&tp->mtx);
-        pthread_cond_signal(&tp->idleCond);
+        pthread_cond_broadcast(&tp->idleCond);
         pthread_cond_signal(&conn->cond);
         return 1;
     }
@@ -438,10 +438,17 @@ static int abortTpConns(int idx, void *data, void *arg)
     tp_t *tp = (tp_t *)data;
 
     pthread_mutex_lock(&tp->mtx);
+    // 如果有busyConns或者还有发信任务,等着发完信进入idleConns
+    while (tp->busyConns->count || tp->waiting > 0) {
+        pthread_cond_wait(&tp->idleCond, &tp->mtx);
+    }
 
-    dllistVisit(tp->noopConns, setEndFlag, NULL);
-    dllistVisit(tp->idleConns, setEndFlag, NULL);
-
+    if (tp->noopConns->count) {
+        dllistVisit(tp->noopConns, setEndFlag, NULL);
+    }
+    if (tp->idleConns->count) {
+        dllistVisit(tp->idleConns, setEndFlag, NULL);
+    }
     while (tp->noopConns->count + tp->idleConns->count > 0) {
         pthread_cond_wait(&tp->endCond, &tp->mtx);
     }
@@ -450,8 +457,11 @@ static int abortTpConns(int idx, void *data, void *arg)
     return 1;
 }
 
-// abortTpConns之前会先调用abortClients
-// 这样当所有的clients都断掉后,conns全都处于idle状态,分布在idleConns和noopConns
+// reload:
+//    调用前先调用blockClients,这样不会有新的发信任务,busyConns在完成当前发信任务后都会转到idleConns里,
+//    然后所有的conns全都处于IDLE或NOOP状态了
+// quit:
+//    调用前先调用abortClients,这样所有clients断掉后,conns全都处于IDLE或NOOP状态了
 void abortTransportsConns()
 {
     dllistVisit(transports, abortTpConns, NULL);

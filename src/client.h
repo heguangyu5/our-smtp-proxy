@@ -13,5 +13,7 @@ typedef struct cl {
 cl_t *newCl(int fd);
 void *handleClient(void *arg);
 void abortClients();
+void blockClients();
+void unblockClients();
 
 #endif

@@ -12,6 +12,10 @@
 extern dllist_t *transports;
 extern pthread_dllist_t *clients;
 
+static int blocked;
+static pthread_mutex_t blockMtx = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t unblockCond = PTHREAD_COND_INITIALIZER;
+
 cl_t *newCl(int fd)
 {
     cl_t *cl = calloc(1, sizeof(cl_t));
@@ -180,6 +184,12 @@ void *handleClient(void *arg)
                     buf = realloc(buf, buflen + 1);
                     buf[buflen] = '\0';
                 }
+                // check if blocked
+                pthread_mutex_lock(&blockMtx);
+                while (blocked) {
+                    pthread_cond_wait(&unblockCond, &blockMtx);
+                }
+                pthread_mutex_unlock(&blockMtx);
                 // send email
                 DPRINTF("client(socket %d) send mail\n", cl->fd);
                 memset(res, 0, reslen);
@@ -217,4 +227,19 @@ void *handleClient(void *arg)
             pthread_exit(NULL);
         }
     }
+}
+
+void blockClients()
+{
+    pthread_mutex_lock(&blockMtx);
+    blocked = 1;
+    pthread_mutex_unlock(&blockMtx);
+}
+
+void unblockClients()
+{
+    pthread_mutex_lock(&blockMtx);
+    blocked = 0;
+    pthread_mutex_unlock(&blockMtx);
+    pthread_cond_broadcast(&unblockCond);
 }

@@ -81,19 +81,6 @@ static int tcpListen(const char *host, const char *port)
     return sockfd;
 }
 
-static void cleanup()
-{
-    MAIN_THREAD_LOG("abort clients\n");
-    abortClients();
-    MAIN_THREAD_LOG("done\n");
-    MAIN_THREAD_LOG("abort transports conns\n")
-    abortTransportsConns();
-    MAIN_THREAD_LOG("done\n");
-    MAIN_THREAD_LOG("free transports\n");
-    freeTransports();
-    MAIN_THREAD_LOG("done\n");
-}
-
 static void *monitor(void *arg)
 {
     int fd;
@@ -173,8 +160,19 @@ static void mainLoop()
         }
         if (reload) {
             MAIN_THREAD_LOG("=====RELOAD=====\n");
-            cleanup();
+            MAIN_THREAD_LOG("block clients\n");
+            blockClients();
+            MAIN_THREAD_LOG("done\n");
+            MAIN_THREAD_LOG("abort transports conns\n")
+            abortTransportsConns();
+            MAIN_THREAD_LOG("done\n");
+            MAIN_THREAD_LOG("free transports\n");
+            freeTransports();
+            MAIN_THREAD_LOG("done\n");
             loadTpConfig(0);
+            MAIN_THREAD_LOG("unblock clients\n");
+            unblockClients();
+            MAIN_THREAD_LOG("done\n");
             MAIN_THREAD_LOG("=====RELOAD DONE=====\n");
             reload = 0;
             continue;
@@ -193,18 +191,34 @@ static void mainLoop()
 
     // cleanup
     MAIN_THREAD_LOG("QUIT\n");
+
     MAIN_THREAD_LOG("cancel monitor thread\n");
     pthread_cancel(monitorThread);
     pthread_join(monitorThread, NULL);
     MAIN_THREAD_LOG("done\n");
+
     timer_delete(todaySendResetTimer);
+
     close(proxyfd);
     close(monitorfd);
-    cleanup();
+
+    MAIN_THREAD_LOG("abort clients\n");
+    abortClients();
+    MAIN_THREAD_LOG("done\n");
+
+    MAIN_THREAD_LOG("abort transports conns\n")
+    abortTransportsConns();
+    MAIN_THREAD_LOG("done\n");
+
+    MAIN_THREAD_LOG("free transports\n");
+    freeTransports();
+    MAIN_THREAD_LOG("done\n");
+
     pthread_dllistDestroy(clients);
     free(transports);
-    // unlink pid file
     unlink(PID_FILE);
+
+    MAIN_THREAD_LOG("QUITTED\n");
 }
 
 static void setReloadFlag(int signo)
