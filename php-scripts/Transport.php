@@ -14,10 +14,16 @@ class mySmtpTransport extends Zend_Mail_Transport_Abstract
 
     public function sendRawMail($from, $to, $rawHeader, $rawBody)
     {
-        // Zend_Mail在添加Subject时,如果需要换行,会使用\n,而一些smtp服务器不接受\n换行的邮件
+        // 将header和body里的\n换成\r\n,一些smtp服务器,比如qmail,不接受\n换行的邮件
+        // @see http://cr.yp.to/docs/smtplf.html
         $rawHeader = trim($rawHeader);
         $rawHeader = str_replace("\r\n", "\n", $rawHeader);
         $rawHeader = str_replace("\n", "\r\n", $rawHeader);
+
+        $rawBody = trim($rawBody);
+        $rawBody = str_replace("\r\n", "\n", $rawBody);
+        $rawBody = str_replace("\n.\n", "\n..\n", $rawBody); // escape . line
+        $rawBody = str_replace("\n", "\r\n", $rawBody);
 
         $msg = array($from);
         if (is_array($to)) {
@@ -29,8 +35,7 @@ class mySmtpTransport extends Zend_Mail_Transport_Abstract
         }
         $msg[] = 'DATA';
         $msg[] = $rawHeader . "\r\n";
-        $msg[] = trim(str_replace("\n.\r\n", "\n..\r\n", $rawBody)) . "\r\n";
-        $msg[] = ".\r\n";
+        $msg[] = $rawBody . "\r\n.\r\n";
         $msg = implode("\r\n", $msg);
 
         if (fwrite($this->fp, $msg) === false) {
