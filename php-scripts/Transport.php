@@ -22,7 +22,7 @@ class mySmtpTransport extends Zend_Mail_Transport_Abstract
 
         $rawBody = trim($rawBody);
         $rawBody = str_replace("\r\n", "\n", $rawBody);
-        $rawBody = str_replace("\n.\n", "\n..\n", $rawBody); // escape . line
+        $rawBody = str_replace("\n.", "\n..", $rawBody); // escape line begin with .
         $rawBody = str_replace("\n", "\r\n", $rawBody);
 
         $msg = array($from);
