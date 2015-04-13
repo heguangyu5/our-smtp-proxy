@@ -133,7 +133,7 @@ void *handleClient(void *arg)
     char *buf, *ptr;
     size_t blksize, buflen, ptrlen, msglen;
 
-    blksize = 2048;
+    blksize = 8192; // 8K
     buf     = calloc(1, blksize);
     ptr     = buf;
     buflen  = blksize;
@@ -178,7 +178,7 @@ void *handleClient(void *arg)
             pthread_cleanup_pop(0);
 
             msglen += n;
-            if (msglen > 5 && strcmp(ptr + n - 5, "\r\n.\r\n") == 0) {
+            if (msglen > 5 && strncmp(ptr + n - 5, "\r\n.\r\n", 5) == 0) {
                 pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
                 if (buflen == msglen) {
                     buf = realloc(buf, buflen + 1);
