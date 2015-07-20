@@ -2,6 +2,7 @@
 
 class mySmtpTransport extends Zend_Mail_Transport_Abstract
 {
+    public $EOL = "\n";
     protected $fp;
 
     public function __construct($remoteSocket)
