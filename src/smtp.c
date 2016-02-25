@@ -172,6 +172,12 @@ int smtpEHLO(tpConn_t *conn, char *err, size_t errlen)
     }
 
     if (conn->tp->ssl && strcmp(conn->tp->ssl, "TLS") == 0) {
+        if (!smtpWrite(conn, "EHLO localhost\r\n", err, errlen)) {
+            return 0;
+        }
+        if (!smtpExpect(conn, "250", 300, err, errlen)) {
+            return 0;
+        }
         if (!smtpWrite(conn, "STARTTLS\r\n", err, errlen)) {
             return 0;
         }
