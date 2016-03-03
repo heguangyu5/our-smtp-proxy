@@ -257,6 +257,16 @@ char *base64_encode(const unsigned char *in, int inlen)
 
 int smtpAuth(tpConn_t *conn, const char *auth, const char *username, const char *password, char *err, size_t errlen)
 {
+    // 当使用Office365发邮件时,默认邮件头里的From只能是当前登录的邮箱,换句话说,不能代发
+    // @see https://technet.microsoft.com/en-us/library/mt210446(v=exchg.150).aspx#TroubleshootSMTP
+    // 要想使用代发,必须使用SMTP relay
+    // @see https://technet.microsoft.com/en-us/library/dn554323(v=exchg.150).aspx#configconnector
+    // 配置好SMTP relay需要的connector之后,由于认证是通过IP白名单的方式,登录就不需要了
+    // 这里我们约定: 当 password == __OUR_SMTP_PROXY_SKIP_AUTH__ 时,直接返回1,也就相当于跳过登录认证了
+    if (strcmp(password, "__OUR_SMTP_PROXY_SKIP_AUTH__") == 0) {
+        return 1;
+    }
+
     if (strcmp(auth, "LOGIN") != 0) {
         snprintf(err, errlen, "500 unsupported smtp auth method\r\n");
         return 0;

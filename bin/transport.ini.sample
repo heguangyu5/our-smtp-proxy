@@ -23,3 +23,16 @@ maxSendPerConn      = 8
 sleepSecondsPerSend = 2
 maxNoop             = 30
 sleepSecondsPerNoop = 10
+
+[hgy-master@hgy5.com]
+host                = hgy5-com.mail.protection.partner.outlook.cn
+port                = 25
+ssl                 = TLS
+auth                = LOGIN
+username            = hgy-master@hgy5.com
+password            = __OUR_SMTP_PROXY_SKIP_AUTH__
+maxConn             = 2             ; smtp服务器允许的最大连接数-1, 留下一个用于reload时测试使用
+maxSendPerConn      = 8
+sleepSecondsPerSend = 2
+maxNoop             = 30
+sleepSecondsPerNoop = 10
